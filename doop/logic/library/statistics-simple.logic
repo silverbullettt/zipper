@@ -1,0 +1,195 @@
+/***************************************************
+ * Variables
+ ***************************************************/
+
+Stats:Simple:InsensVarPointsTo(?heap, ?var) ->
+  HeapAllocationRef(?heap), VarRef(?var).
+Stats:Simple:InsensVarPointsTo(?heap, ?var) <-
+  VarPointsTo(_, ?heap, _, ?var).
+#ifdef TRANSFORM_INPUT
+// Example of post-processing of set-based transform results for client analyses
+// that need it.
+Stats:Simple:InsensVarPointsTo(?heap, ?var) <-
+  VarPointsTo(_, ?heap, _, ?var2), DupCopies(?var, ?var2).
+#endif
+
+Stats:Simple:InsensReachableVar(?var) -> VarRef(?var).
+Stats:Simple:ReachableVar(?ctx, ?var) -> Context(?ctx), VarRef(?var).
+
+Stats:Simple:InsensReachableVar(?var),
+Stats:Simple:ReachableVar(?ctx, ?var) <-
+  ReachableContext(?ctx, ?method), Var:DeclaringMethod(?var, ?method).
+
+/***************************************************
+ * Arrays
+ ***************************************************/
+
+Stats:Simple:InsensArrayIndexPointsTo(?heap, ?baseheap) ->
+  HeapAllocationRef(?heap), HeapAllocationRef(?baseheap).
+Stats:Simple:InsensArrayIndexPointsTo(?heap, ?baseheap) <-
+  ArrayIndexPointsTo(_, ?heap, _, ?baseheap).
+
+/***************************************************
+ * Fields
+ ***************************************************/
+
+Stats:Simple:InsensInstanceFieldPointsTo(?heap, ?sig, ?baseheap) ->
+  HeapAllocationRef(?heap), FieldSignatureRef(?sig), HeapAllocationRef(?baseheap).
+Stats:Simple:InsensInstanceFieldPointsTo(?heap, ?sig, ?baseheap) <-
+  InstanceFieldPointsTo(_, ?heap, ?sig, _, ?baseheap).
+
+Stats:Simple:InsensStaticFieldPointsTo(?heap, ?sig) ->
+  HeapAllocationRef(?heap), FieldSignatureRef(?sig).
+Stats:Simple:InsensStaticFieldPointsTo(?heap, ?sig) <-
+  StaticFieldPointsTo(_, ?heap, ?sig).
+
+/***************************************************
+ * Call graph edges
+ ***************************************************/
+
+Stats:Simple:InsensCallGraphEdge(?from, ?to) ->
+  CallGraphEdgeSourceRef(?from), MethodSignatureRef(?to).
+Stats:Simple:InsensCallGraphEdge(?from, ?to) <-
+  CallGraphEdge(_, ?from, _, ?to).
+
+/*
+Stats:Simple:InsensNativeCallGraphEdge(?from, ?to) ->
+  MethodSignatureRef(?from), MethodSignatureRef(?to).
+Stats:Simple:InsensNativeCallGraphEdge(?from, ?to) <-
+  NativeCallGraphEdge(_, ?from, _, ?to).
+*/
+
+Stats:Simple:VirtualCallGraphEdge(?from, ?to) -> MethodInvocationRef(?from),  MethodSignatureRef(?to).
+Stats:Simple:VirtualCallGraphEdge(?from, ?to) <-
+	Stats:Simple:ReachableVirtualMethodInvocation(?from),
+	Stats:Simple:InsensCallGraphEdge(?from, ?to).
+
+Stats:Simple:InsensReflectiveCallGraphEdge(?from, ?to) ->
+  CallGraphEdgeSourceRef(?from), MethodSignatureRef(?to).
+Stats:Simple:InsensReflectiveCallGraphEdge(?from, ?to) <-
+	ReflectiveCallGraphEdge(_, ?from, _, ?to).
+
+Stats:Simple:WholeInsensCallGraphEdge(?from, ?to) ->
+  CallGraphEdgeSourceRef(?from), MethodSignatureRef(?to).
+
+Stats:Simple:WholeInsensCallGraphEdge(?from, ?to) <-
+  Stats:Simple:InsensCallGraphEdge(?from, ?to).
+Stats:Simple:WholeInsensCallGraphEdge(?from, ?to) <-
+  Stats:Simple:InsensReflectiveCallGraphEdge(?from, ?to).
+
+/***************************************************
+ * Application methods
+ ***************************************************/
+
+Stats:Simple:ApplicationMethod(?method) -> MethodSignatureRef(?method).
+Stats:Simple:ApplicationMethod(?method) <-
+	ApplicationClass(?class),
+	DeclaringClassMethod[?method] = ?class.
+
+/*
+Stats:Simple:ApplicationMethodNotAbstract(?method) -> MethodSignatureRef(?method).
+Stats:Simple:ApplicationMethodNotAbstract(?method) <-
+	Stats:Simple:ApplicationMethod(?method),
+	! MethodModifier(?abstract, ?method),
+	ModifierRef:Value(?abstract:"abstract").
+*/
+
+Stats:Simple:InsensReachableApplicationMethod(?method) -> MethodSignatureRef(?method).
+Stats:Simple:ReachableApplicationMethod(?ctx, ?method) -> Context(?ctx), MethodSignatureRef(?method).
+
+Stats:Simple:InsensReachableApplicationMethod(?method),
+Stats:Simple:ReachableApplicationMethod(?ctx, ?method) <-
+	ReachableContext(?ctx, ?method),
+	Stats:Simple:ApplicationMethod(?method).
+
+/*
+Stats:Simple:NotReachableApplicationMethodNotAbstract(?method) -> MethodSignatureRef(?method).
+Stats:Simple:NotReachableApplicationMethodNotAbstract(?method) <-
+	Stats:Simple:ApplicationMethodNotAbstract(?method),
+	! Stats:Simple:InsensReachableApplicationMethod(?method).
+*/
+
+/***************************************************
+ * Virtual method invocations
+ ***************************************************/
+
+Stats:Simple:VirtualTargets[?from] = ?size -> MethodInvocationRef(?from), int[64](?size).
+Stats:Simple:VirtualTargets[?from] = size <-
+	agg<<size = count()>>(Stats:Simple:VirtualCallGraphEdge(?from, _)).
+
+/*
+Stats:Simple:Application:VirtualTargets[?from] = ?size -> MethodInvocationRef(?from), int[64](?size).
+Stats:Simple:Application:VirtualTargets[?from] = ?size <-
+	Stats:Simple:VirtualTargets[?from] = ?size,
+	Stats:Simple:Application:ReachableVirtualMethodInvocation(?from).
+*/
+
+Stats:Simple:PolymorphicCallSite(?from) -> MethodInvocationRef(?from).
+Stats:Simple:PolymorphicCallSite(?from) <-
+	Stats:Simple:VirtualTargets[?from] = ?size, ?size > 1.
+
+Stats:Simple:Application:PolymorphicCallSite(?from) -> MethodInvocationRef(?from).
+Stats:Simple:Application:PolymorphicCallSite(?from) <-
+	Stats:Simple:PolymorphicCallSite(?from),
+	Stats:Simple:Application:ReachableVirtualMethodInvocation(?from).
+
+Stats:Simple:ReachableVirtualMethodInvocation(?invocation) -> MethodInvocationRef(?invocation).
+Stats:Simple:ReachableVirtualMethodInvocation(?invocation) <-
+	Reachable(?method),
+	VirtualMethodInvocation:In(?invocation, ?method).
+
+Stats:Simple:Application:ReachableVirtualMethodInvocation(?invocation) -> MethodInvocationRef(?invocation).
+Stats:Simple:Application:ReachableVirtualMethodInvocation(?invocation) <-
+	Stats:Simple:InsensReachableApplicationMethod(?method),
+	VirtualMethodInvocation:In(?invocation, ?method).
+
+Stats:Simple:Application:VirtualMethodInvocation(?invocation) -> MethodInvocationRef(?invocation).
+Stats:Simple:Application:VirtualMethodInvocation(?invocation) <-
+	Stats:Simple:ApplicationMethod(?method),
+	VirtualMethodInvocation:In(?invocation, ?method).
+
+Stats:Simple:NullVirtualMethodInvocation(?invocation) -> MethodInvocationRef(?invocation).
+Stats:Simple:NullVirtualMethodInvocation(?invocation) <-
+	Stats:Simple:ReachableVirtualMethodInvocation(?invocation),
+	VirtualMethodInvocation:Base[?invocation] = ?base,
+	!(Stats:Simple:InsensVarPointsTo(_, ?base)).
+
+Stats:Simple:Application:NullVirtualMethodInvocation(?invocation) -> MethodInvocationRef(?invocation).
+Stats:Simple:Application:NullVirtualMethodInvocation(?invocation) <-
+	Stats:Simple:Application:ReachableVirtualMethodInvocation(?invocation),
+	VirtualMethodInvocation:Base[?invocation] = ?base,
+	!(Stats:Simple:InsensVarPointsTo(_, ?base)).
+
+/***************************************************
+ * Casts
+ ***************************************************/
+
+Stats:Simple:Application:Cast(?type, ?from, ?to, ?inmethod) <-
+	AssignCast(?type, ?from, ?to, ?inmethod), Stats:Simple:ApplicationMethod(?inmethod).
+
+Stats:Simple:PotentiallyFailingCast(?type, ?from, ?to) -> Type(?type), VarRef(?to), VarRef(?from).
+Stats:Simple:PotentiallyFailingCast(?type, ?from, ?to) <-
+	Stats:Simple:ReachableCast(_, ?type, ?to, ?from),
+	Stats:Simple:InsensVarPointsTo(?heap, ?from),
+	HeapAllocation:Type[?heap] = ?heaptype,
+	! AssignCompatible(?type, ?heaptype).
+
+Stats:Simple:Application:PotentiallyFailingCast(?type, ?from, ?to) -> Type(?type), VarRef(?to), VarRef(?from).
+Stats:Simple:Application:PotentiallyFailingCast(?type, ?from, ?to) <-
+	Stats:Simple:Application:ReachableCast(_, ?type, ?to, ?from),
+	Stats:Simple:InsensVarPointsTo(?heap, ?from),
+	HeapAllocation:Type[?heap] = ?heaptype,
+	! AssignCompatible(?type, ?heaptype).
+
+// TODO introduce an ID for casts.
+Stats:Simple:ReachableCast(?inmethod, ?type, ?to, ?from) -> 
+	Type(?type), VarRef(?to), VarRef(?from), MethodSignatureRef(?inmethod).
+Stats:Simple:ReachableCast(?inmethod, ?type, ?to, ?from) <-
+	Reachable(?inmethod), AssignCast(?type, ?from, ?to, ?inmethod).
+
+Stats:Simple:Application:ReachableCast(?inmethod, ?type, ?to, ?from) -> 
+	Type(?type), VarRef(?to), VarRef(?from), MethodSignatureRef(?inmethod).
+Stats:Simple:Application:ReachableCast(?inmethod, ?type, ?to, ?from) <-
+	Stats:Simple:ApplicationMethod(?inmethod),
+	Stats:Simple:ReachableCast(?inmethod, ?type, ?to, ?from).
+

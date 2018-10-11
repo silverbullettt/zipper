@@ -1,0 +1,515 @@
+/**
+ * Declarations of facts generated from Jimple (analysis independent)
+ *
+ * @author Martin Bravenboer
+ */
+
+/**
+ * Ref-modes
+ */
+VarRef(?x), VarRef:Value(?x:?s) -> string(?s).
+
+StringConstant(?x) -> HeapAllocationRef(?x).
+ClassConstant(?x) -> HeapAllocationRef(?x).
+lang:entity(`StringConstant).
+
+MethodSignatureRef(x), MethodSignatureRef:Value(x:s) -> string(s).
+MethodDescriptorRef(x), MethodDescriptorRef:Value(x:s) -> string(s).
+FieldSignatureRef(x), FieldSignatureRef:Value(x:s) -> string(s).
+
+ParamIndexRef(x), ParamIndexRef:Value(x:y) -> int[32](y).
+SimpleNameRef(x), SimpleNameRef:Value(x:s) -> string(s).
+
+ModifierRef(x), ModifierRef:Value(x:s) -> string(s).
+ExceptionHandlerRef(x), ExceptionHandlerRef:Value(x:s) -> string(s).
+
+/**
+ * Bytecode Instructions
+ */
+InstructionRef(?x), InstructionRef:Value(?x:?s) -> string(?s).
+
+ThrowRef(?x) -> InstructionRef(?x).
+CallGraphEdgeSourceRef(?x) -> InstructionRef(?x).
+MethodInvocationRef(?x) -> CallGraphEdgeSourceRef(?x).
+HeapAllocationRef(?x) -> CallGraphEdgeSourceRef(?x).
+
+/**
+ * Java types
+ *
+ * TODO Improve type hierarchy: ArrayType is a subtype of ClassType,
+ *      turn ClassType into OrdinaryClassType.
+ */
+Type(?x), Type:Value(?x:?s) -> string(?s).
+
+PrimitiveType(?x) -> Type(?x).
+lang:entity(`PrimitiveType).
+
+ReferenceType(?x) -> Type(?x).
+NullType(?x) -> Type(?x).
+lang:entity(`NullType).
+
+ArrayType(?x) -> ReferenceType(?x).
+ClassType(?x) -> ReferenceType(?x).
+InterfaceType(?x) -> ReferenceType(?x).
+lang:entity(`InterfaceType).
+
+/**
+ * Capacity declarations
+ */
+lang:physical:capacity[`FieldSignatureRef] = 65536. /* 2^16 */
+lang:physical:capacity[`MethodSignatureRef] = 131072.
+lang:physical:capacity[`MethodDescriptorRef] = 131072.
+lang:physical:capacity[`InstructionRef] = 1048576. /* 2^20 */
+lang:physical:capacity[`ThrowRef] = 1048576. /* = instruction */
+lang:physical:capacity[`CallGraphEdgeSourceRef] = 1048576. /* = instruction */
+lang:physical:capacity[`HeapAllocationRef] = 1048576. /* = instruction */
+lang:physical:capacity[`MethodInvocationRef] = 1048576. /* = instruction */
+lang:physical:capacity[`StringConstant] = 1048576./* = CallEdgeSourceRef */
+lang:physical:capacity[`ClassConstant] = 1048576./* = CallEdgeSourceRef */
+lang:physical:capacity[`SimpleNameRef] = 131072.
+lang:physical:capacity[`ExceptionHandlerRef] = 131072.
+lang:physical:capacity[`VarRef] = 1048576. /* 2^20 */
+lang:physical:capacity[`ModifierRef] = 32.
+lang:physical:capacity[`Type] = 32768.
+lang:physical:capacity[`PrimitiveType] = 32768.
+lang:physical:capacity[`ReferenceType] = 32768.
+lang:physical:capacity[`NullType] = 32768.
+lang:physical:capacity[`ArrayType] = 32768.
+lang:physical:capacity[`ClassType] = 32768.
+lang:physical:capacity[`InterfaceType] = 32768.
+
+/**
+ * Type declarations
+ */
+DirectSuperclass[?ref] = ?super ->
+  Type(?ref),
+  Type(?super).
+
+DirectSuperinterface(?class, ?interface) ->
+  Type(?class),
+  Type(?interface).
+
+ApplicationClass(?ref) ->
+  Type(?ref).
+
+MainClass(?ref) ->
+  ClassType(?ref).
+
+/**
+ * Variable declarations
+ */
+Var:Type[?ref] = ?type ->
+  VarRef(?ref),
+  Type(?type).
+
+Var:DeclaringMethod(?ref, ?method) ->
+  VarRef(?ref),
+  MethodSignatureRef(?method).
+
+/**
+ * Field declarations
+ */
+FieldSignature(?ref, ?declaringClass, ?simplename, ?type) ->
+  FieldSignatureRef(?ref),
+  Type(?declaringClass),
+  SimpleNameRef(?simplename),
+  Type(?type).
+
+FieldModifier(?modifier, ?field) ->
+  FieldSignatureRef(?field),
+  ModifierRef(?modifier).
+
+/**
+ * Method declarations
+ */
+MethodDeclaration[?signature] = ?ref ->
+  MethodSignatureRef(?signature),
+  MethodSignatureRef(?ref).
+
+/**
+ * Method ?method declares to throw exception ?exceptionType.
+ *
+ * This predicate corresponds to Java's throws clause, or the
+ * Exceptions clause in Java bytecode.
+ */
+MethodDeclaration:Exception(?exceptionType, ?method) ->
+  MethodSignatureRef(?method),
+  Type(?exceptionType).
+
+/**
+ * method signatures
+
+MethodSignature(?ref, ?type, ?simplename, ?descriptor) ->
+  MethodSignatureRef(?ref),
+  Type(?type),
+  SimpleNameRef(?simplename),
+  MethodDescriptorRef(?descriptor).
+ */
+// Type that contains the method decl
+MethodSignature:Type[?signature] = ?type ->
+  MethodSignatureRef(?signature),
+  Type(?type).
+
+MethodSignature:SimpleName[?signature] = ?simplename ->
+  MethodSignatureRef(?signature),
+  SimpleNameRef(?simplename).
+
+MethodSignature:Descriptor[?signature] = ?descriptor ->
+  MethodSignatureRef(?signature),
+  MethodDescriptorRef(?descriptor).
+
+MethodModifier(?mod, ?method) ->
+  MethodSignatureRef(?method),
+  ModifierRef(?mod).
+
+/**
+ * Parameters
+ */ 
+FormalParam[?index, ?method] = ?var ->
+  MethodSignatureRef(?method),
+  ParamIndexRef(?index),
+  VarRef(?var).
+
+ActualParam[?index, ?invocation] = ?var ->
+  MethodInvocationRef(?invocation),
+  ParamIndexRef(?index),
+  VarRef(?var).
+
+ThisVar[?method] = ?var ->
+  MethodSignatureRef(?method),
+  VarRef(?var).
+
+/**
+ * Return variables
+ *
+ * Note: a Jimple method can have multiple return variables.
+ */
+ReturnVar(?var, ?method) ->
+  MethodSignatureRef(?method),
+  VarRef(?var).
+  // OPT: switched var and method because method is usually bound.
+
+/**
+ * Special Method invocations
+SpecialMethodInvocation(?invocation, ?base, ?sig, ?inmethod) ->
+  MethodInvocationRef(?invocation),
+  VarRef(?base),
+  MethodSignatureRef(?sig),
+  MethodSignatureRef(?inmethod).
+ */
+SpecialMethodInvocation:Base[?invocation] = ?base ->
+  MethodInvocationRef(?invocation),
+  VarRef(?base).
+
+SpecialMethodInvocation:In(?invocation, ?inmethod) ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?inmethod).
+
+SpecialMethodInvocation:Signature[?invocation] = ?signature ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?signature).
+
+/**
+ * Virtual method invocations
+ */
+VirtualMethodInvocation(?invocation, ?signature, ?inmethod) ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?signature),
+  MethodSignatureRef(?inmethod).
+
+VirtualMethodInvocation:Base[?invocation] = ?base ->
+  MethodInvocationRef(?invocation),
+  VarRef(?base).
+
+VirtualMethodInvocation:In(?invocation, ?inmethod) ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?inmethod).
+
+VirtualMethodInvocation:Signature[?invocation] = ?signature ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?signature).
+
+/**
+ * Static method invocations
+
+StaticMethodInvocation(?invocation, ?sig, ?inmethod) ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?sig),
+  MethodSignatureRef(?inmethod).
+ */
+StaticMethodInvocation(?invocation, ?signature, ?inmethod) ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?signature),
+  MethodSignatureRef(?inmethod).
+
+StaticMethodInvocation:In(?invocation, ?inmethod) ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?inmethod).
+
+StaticMethodInvocation:Signature[?invocation] = ?signature ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?signature).
+
+/**
+ * Instructions
+ */
+
+Instruction:Index[?instruction] = ?index ->
+  InstructionRef(?instruction),
+  int[32](?index).
+
+/**
+ * Heap allocation
+ */
+HeapAllocation:Type[?heap] = ?type ->
+  HeapAllocationRef(?heap),
+  Type(?type).
+
+/**
+ * Assignments
+ */
+AssignHeapAllocation(?heap, ?to, ?inmethod) ->
+  HeapAllocationRef(?heap),
+  MethodSignatureRef(?inmethod),
+  VarRef(?to).
+
+AssignReturnValue[?invocation] = ?to ->
+  MethodInvocationRef(?invocation),
+  VarRef(?to).
+
+AssignLocal(?from, ?to, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  VarRef(?from),
+  VarRef(?to).
+
+AssignCast(?type, ?from, ?to, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  VarRef(?from),
+  VarRef(?to),
+  Type(?type).
+
+/**
+ * Fields
+ */
+// OPT inmethod last
+LoadInstanceField(?base, ?sig, ?to, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  VarRef(?base),
+  FieldSignatureRef(?sig),
+  VarRef(?to).
+
+LoadStaticField(?sig, ?to, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  FieldSignatureRef(?sig),
+  VarRef(?to).
+
+LoadPrimStaticField(?sig, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  FieldSignatureRef(?sig).
+
+StoreInstanceField(?from, ?base, ?signature, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  VarRef(?from),
+  VarRef(?base),
+  FieldSignatureRef(?signature).
+
+StoreStaticField(?from, ?signature, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  VarRef(?from),
+  FieldSignatureRef(?signature).
+
+StorePrimStaticField(?signature, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  FieldSignatureRef(?signature).
+
+/**
+ * Arrays
+ */
+LoadArrayIndex(?base, ?to, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  VarRef(?base),
+  VarRef(?to).
+
+StoreArrayIndex(?from, ?base, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  VarRef(?from),
+  VarRef(?base).
+
+ComponentType[?arrayType] = ?componentType ->
+  ArrayType(?arrayType),
+  Type(?componentType).
+
+/**
+ * Exceptions
+ */
+Throw(?ref, ?var) ->
+  ThrowRef(?ref),
+  VarRef(?var).
+
+Throw:Method[?ref] = ?inmethod ->
+  ThrowRef(?ref),
+  MethodSignatureRef(?inmethod).
+
+/* fact for Paddle compatibility mode */
+SimpleExceptionHandler(?type, ?var, ?inmethod) ->
+  Type(?type),
+  MethodSignatureRef(?inmethod),
+  VarRef(?var).
+
+ExceptionHandler:Method(?handler, ?inmethod) ->
+  MethodSignatureRef(?inmethod),
+  ExceptionHandlerRef(?handler).
+
+ExceptionHandler:Type[?handler] = ?type ->
+  ExceptionHandlerRef(?handler),
+  Type(?type).
+
+/**
+ * Variable to which caught exceptions are assigned.
+ */
+ExceptionHandler:FormalParam[?handler] = ?var ->
+  ExceptionHandlerRef(?handler),
+  VarRef(?var).
+
+/**
+ * First index of the bytecodes covered by this handler.
+ */
+ExceptionHandler:Begin[?handler] = ?index ->
+  ExceptionHandlerRef(?handler),
+  int[32](?index).
+
+/**
+ * Last index (excluding this index) of the bytecodes covered by this handler.
+ */
+ExceptionHandler:End[?handler] = ?index ->
+  ExceptionHandlerRef(?handler),
+  int[32](?index).
+
+/**
+ * Previous exception handler (handlers are ordered inside a method).
+ */
+ExceptionHandler:Previous[?handler] = ?previous ->
+  ExceptionHandlerRef(?handler),
+  ExceptionHandlerRef(?previous).
+
+/***********************************************************************
+ *
+ * Reflection
+ *
+ ***********************************************************************/
+
+ReifiedClass[?type] = ?heap ->
+  ClassConstant(?heap),
+  Type(?type).
+
+ReifiedConstructor[?constructor] = ?heap ->
+  HeapAllocationRef(?heap),
+  MethodSignatureRef(?constructor).
+
+ReifiedMethod[?method] = ?heap ->
+  HeapAllocationRef(?heap),
+  MethodSignatureRef(?method).
+
+ReifiedField[?field] = ?heap ->
+  HeapAllocationRef(?heap),
+  FieldSignatureRef(?field).
+
+
+/**
+ * Reflective operations
+ */
+java:lang:Class:newInstance(?invocation, ?to, ?from) ->
+  MethodInvocationRef(?invocation),
+  VarRef(?to),
+  VarRef(?from).
+
+java:lang:reflect:Constructor:newInstance(?invocation, ?to, ?from) ->
+  MethodInvocationRef(?invocation),
+  VarRef(?to),
+  VarRef(?from).
+
+/**
+ * Types potentially returned by a specific Class.forName invocation.
+ */
+Config:DynamicClass(?class, ?invocation) ->
+  Type(?class),
+  MethodInvocationRef(?invocation).
+
+ReflectiveHeapAllocation[?instruction, ?type] = ?heap ->
+  HeapAllocationRef(?heap),
+  Type(?type),
+  InstructionRef(?instruction).
+
+/**
+ * MISPLACED!!! (REVIEW--Yannis) Everything below this line is not really 
+ * an EDB. Maybe they used to be, but currently they are computed from regular 
+ * method calls as part of the reflection logic. This means that any 
+ * transformation that changes the input "abstract program" does not need
+ * to change the relations below or analyze them.
+ */
+java:lang:Object:getClass(?to, ?from) ->
+  VarRef(?to),
+  VarRef(?from).
+
+java:lang:Class:forName(?invocation, ?inmethod) ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?inmethod).
+
+java:lang:Class:getConstructor(?to, ?from) ->
+  VarRef(?to),
+  VarRef(?from).
+
+java:lang:Class:getDeclaredConstructor(?to, ?from) ->
+  VarRef(?to),
+  VarRef(?from).
+
+//java:lang:Class:getDeclaredMethod(?to, ?from) ->
+//  VarRef(?to),
+//  VarRef(?from).
+
+java:lang:Class:getDeclaredMethod(?to, ?nameParam, ?from) ->
+  VarRef(?to),
+  VarRef(?nameParam),
+  VarRef(?from).
+
+java:lang:Class:getDeclaredMethods(?to, ?from) ->
+  VarRef(?to),
+  VarRef(?from).
+
+java:lang:Class:getDeclaredField(?to, ?nameParam, ?from) ->
+  VarRef(?to),
+  VarRef(?nameParam),
+  VarRef(?from).
+
+java:lang:Class:getDeclaredFields(?to, ?from) ->
+  VarRef(?to),
+  VarRef(?from).
+
+java:lang:reflect:Method:invoke(?invocation, ?from) ->
+  MethodInvocationRef(?invocation),
+  VarRef(?from).
+
+/**
+ * Reflective load (get) of a field.
+ */
+java:lang:reflect:Field:get(?invocation, ?to, ?field) ->
+  MethodInvocationRef(?invocation),
+  VarRef(?to),
+  VarRef(?field).
+
+// Enable Zipper: the method which should be analyzed context-sensitively
+ZipperContextSensitiveMethod(?method) ->
+  MethodSignatureRef(?method).
+
+// Reading reflection analysis results
+ClassNewInstance:Log(?invocation, ?type) ->
+  MethodInvocationRef(?invocation),
+  Type(?type).
+
+ConstructorNewInstance:Log(?invocation, ?constructor) ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?constructor).
+
+MethodInvoke:Log(?invocation, ?method) ->
+  MethodInvocationRef(?invocation),
+  MethodSignatureRef(?method).

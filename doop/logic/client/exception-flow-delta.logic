@@ -1,0 +1,17 @@
+#ifdef CLIENT_EXCEPTION_FLOW
+NativeExceptionHeapAllocation(?heap, ?method) ->
+  MethodSignatureRef(?method),
+  HeapAllocationRef(?heap).
+
++NativeExceptionHeapAllocation(?heap, ?method),
++InstructionRef:Value(?heap:?s),
++HeapAllocationRef(?heap),
++HeapAllocation:Type[?heap] = ?exceptionType
+  <-
+  MethodModifier(?native, ?method),
+  ModifierRef:Value(?native:"native"),
+  MethodDeclaration:Exception(?exceptionType, ?method),
+  Type:Value(?exceptionType:?typeString),
+  MethodSignatureRef:Value(?method:?methodString),
+  ?s = ?methodString + "/native new " + ?typeString.
+#endif

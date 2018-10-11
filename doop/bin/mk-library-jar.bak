@@ -1,0 +1,118 @@
+#! /bin/bash
+
+set -e
+
+if [[ $# < 2 ]]; then
+    echo "Usage: $0 GLOB JAR.." >&2; exit 1
+fi
+
+# Save glob and advance arguments
+glob=$1; shift
+
+# List of classes
+klasses="class-list.tmp"
+empty="Empty.java"
+classpath=""
+container=contents
+
+# Initialize class list
+> $klasses
+
+# Temporary class file container
+mkdir -p $container
+
+for jarfile in $@
+do
+    # Add to classpath
+    classpath="$classpath:$jarfile"
+   
+    # Extract jar contents
+    pushd $container >/dev/null
+    jar xf ../$jarfile
+    popd  >/dev/null
+
+    for classfile in $(find $container -type f)
+    do
+        # Skip contents other than class files
+        if [[ $classfile != *.class ]]; then
+            continue
+        fi
+
+        echo $classfile
+        javap -public $classfile >/dev/null
+        
+        # From class file to class name
+        klass=$(echo $classfile | sed "s/^$container\/\(.*\).class$/\1/" | sed 's/\//./g')
+
+        echo $klass
+
+        set -f
+
+        # Check against glob
+        for pattern in ${glob//:/ }
+        do
+            # Case insensitive matching
+            shopt -s nocasematch
+
+            case $pattern in
+                "*")
+                    # Default package only
+                    if [[ $klass != *.* ]]; then
+                        echo $klass >> $klasses
+                    fi
+                    ;;
+                "**")
+                    # Matches everything
+                    echo $klass >> $klasses
+                    ;;
+                *".*")                    
+                    # Packages match
+                    if [[ ${klass%.*} == ${pattern%.*} ]]; then
+                        echo $klass >> $klasses
+                    fi
+                    ;;
+                *".**")
+                    # Prefix match
+                    if [[ $klass == ${pattern%.*}* ]]; then
+                        echo $klass >> $klasses
+                    fi
+                    ;;
+                *)
+                    # Exact match
+                    if [[ $klass == $pattern ]]; then
+                        echo $klass >> $klasses
+                    fi
+                    ;;
+            esac
+
+            shopt -u nocasematch
+        done
+
+        set +f
+    done
+    rm -rf $container/*
+done
+
+# Remove duplicates
+sort -u -o $klasses $klasses
+
+# Initialize reference counter
+ref=0
+
+# Create reference containing class
+cat > $empty <<EOF
+public class Empty {
+    public static void main(String[] args) {
+$(awk 'BEGIN{ i = 0 }{ printf "       %s var%d;\n", $0, i++ }' $klasses)
+    }
+}
+EOF
+
+cat $empty 
+
+# Compiler java file
+javac -cp $classpath $empty 
+
+# Cleanup
+rm $empty $klasses
+rmdir $container

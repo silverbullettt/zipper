@@ -1,0 +1,14 @@
+#include "macros.logic"
+#include "../library/common-delta.logic"
+
+/**
+ * Special objects
+ */
++MySystemThreadGroup(?alloc),
+  PlusHeapAllocationRef(?alloc, "<<system-thread-group>>", "java.lang.ThreadGroup").
+
++MyMainThreadGroup(?alloc),
+  PlusHeapAllocationRef(?alloc, "<<main-thread-group>>", "java.lang.ThreadGroup").
+
++MyMainThread(?alloc),
+  PlusHeapAllocationRef(?alloc, "<<main-thread>>", "java.lang.Thread").

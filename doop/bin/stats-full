@@ -1,0 +1,527 @@
+#!/bin/bash
+
+set -e 		# Exit immediately if a command exits with a nonzero exit status
+set -u 		# Treat unset variables as an error
+#set -x 	# Print commands and their arguments as they are executed (debugging)
+
+# trap ^C in order to cancel the computation of some statistic, but keep executing the rest
+#trap 'echo "Canceled..."' SIGINT
+
+bloxbatch=$LOGICBLOX_HOME/bin/bloxbatch
+
+database=$1
+analysis=`cat $database/.doop-meta/analysis`
+CPPFLAGS=`cat $database/.doop-meta/CPPFLAGS`
+
+function queryInt()
+{
+	echo "_result[] = ?count -> int[64](?count). _result[] = ?count <- $1" > $DOOP_HOME/tmp/stats.logic
+	cpp -CC -P $CPPFLAGS -include $DOOP_HOME/logic/$analysis/macros.logic $DOOP_HOME/tmp/stats.logic $DOOP_HOME/tmp/preprocessed-stats.logic
+
+	$bloxbatch -db $database -print _result -query -file $DOOP_HOME/tmp/preprocessed-stats.logic | \
+		awk 'BEGIN { found = 0 } NF==1 { print $1 ; found = 1 } END { if ( found != 1 ) print 0 }'
+}
+
+function count()
+{
+	queryInt "agg<<?count = count()>>($1). $2"
+}
+
+function size()
+{
+	$bloxbatch -db $database -popCount $1 | awk '{ print $2 }'
+}
+
+# NOTE: Arguments: <message> <predicate> <countPredicate>
+# message: message to print
+# predicate: predicate whose percentages are computed
+# countPredicate: predicate providing the size of the <predicate>
+function printPercentages()
+{
+	printf "%-80s %'d / %'d / %'d / %'d / %'d / %'d / %'d (min/median/60%%/75%%/90%%/95%%/max)\n" "$1" \
+		$(queryInt "$2[1] = ?count.") \
+		$(queryInt "$2[$3[] / 2] = ?count.") \
+		$(queryInt "$2[($3[] * 60) / 100] = ?count.") \
+		$(queryInt "$2[($3[] * 75) / 100] = ?count.") \
+		$(queryInt "$2[($3[] * 90) / 100] = ?count.") \
+		$(queryInt "$2[($3[] * 95) / 100] = ?count.") \
+		$(queryInt "$2[$3[]] = ?count.")
+}
+
+function print2()
+{
+	printf "%-80s %'d\n" "$1" "$2"
+}
+
+function print3()
+{
+	printf "%-80s %'d (insens) / %'d (sens)\n" "$1" "$2" "$3"
+}
+
+
+#print3 "#heaps on method boundaries" $(size Stats:InsensHeapsOnMethodBoundaries) $(size Stats:HeapsOnMethodBoundaries)
+#print3 "#throwable heaps on method boundaries" $(size Stats:InsensThrowableHeapsOnMethodBoundaries) $(size Stats:ThrowableHeapsOnMethodBoundaries)
+#print3 "#app throwable heaps on method boundaries" $(size Stats:InsensAppThrowableHeapsOnMethodBoundaries) $(size Stats:AppThrowableHeapsOnMethodBoundaries)
+#print3 "#throwable heaps on app method boundaries" $(size Stats:InsensAppMethThrowableHeapsOnMethodBoundaries) $(size Stats:AppMethThrowableHeapsOnMethodBoundaries)
+#print3 "var points-to entries, to non-throwable objects" $(size Stats:InsensVarPointsToNonThrowable) $(size Stats:VarPointsToNonThrowable)
+#print3 "field points-to entries, to non-throwable objects" $(size Stats:InsensInstanceFieldPointsToNonThrowable) $(size Stats:InstanceFieldPointsToNonThrowable)
+#print3 "field points-to entries, from non-throwable objects" $(size Stats:InsensInstanceFieldPointsToNonThrowable2) $(size Stats:InstanceFieldPointsToNonThrowable2)
+#print3 "field points-to entries, from+to non-throwable objects" $(size Stats:InsensInstanceFieldPointsToNonThrowable3) $(size Stats:InstanceFieldPointsToNonThrowable3)
+#print3 "throw points-to" $(size Stats:InsensThrowPointsTo) $(size ThrowPointsTo)
+
+#echo
+
+print3 "#vars" $(size Stats:InsensVarCount) $(size Stats:VarCount)
+print3 "#app vars" \
+	$(count '_Result(_)' '_Result(?var) <- Stats:Simple:InsensVarPointsTo(_, ?var),
+	Var:DeclaringMethod(?var, ?method), Stats:Simple:ApplicationMethod(?method).') \
+	$(count '_Result(_, _)' '_Result(?ctx, ?var) <- Stats:InsensHeapVarPointsTo(_, ?ctx, ?var),
+	Var:DeclaringMethod(?var, ?method), Stats:Simple:ApplicationMethod(?method).')
+print3 "#Object-typed vars" \
+	$(count '_Result(_)' '_Result(?var) <- Stats:Simple:InsensVarPointsTo(_, ?var),
+	Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+	$(count '_Result(_, _)' '_Result(?ctx, ?var) <- Stats:InsensHeapVarPointsTo(_, ?ctx, ?var),
+	Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").')
+print3 "#app Object-typed vars" \
+	$(count '_Result(_)' '_Result(?var) <- Stats:Simple:InsensVarPointsTo(_, ?var),
+	Var:DeclaringMethod(?var, ?method), Stats:Simple:ApplicationMethod(?method),
+	Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+	$(count '_Result(_, _)' '_Result(?ctx, ?var) <- Stats:InsensHeapVarPointsTo(_, ?ctx, ?var),
+	Var:DeclaringMethod(?var, ?method), Stats:Simple:ApplicationMethod(?method),
+	Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").')
+
+print3 "var points-to entries" $(size Stats:Simple:InsensVarPointsTo) $(size VarPointsTo)
+print2 "var points-to entries with insens heap" $(size Stats:InsensHeapVarPointsTo)
+print2 "var points-to entries with insens base" $(size Stats:InsensBaseVarPointsTo)
+
+print3 "var points-to entries with Object-typed base" \
+	$(count '_Result(_, _, _)' '_Result(?heapCtx, ?heap, ?var) <-
+	Stats:InsensBaseVarPointsTo(?heapCtx, ?heap, ?var), Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+	$(count '_Result(_, _, _, _)' '_Result(?heapCtx, ?heap, ?ctx, ?var) <-
+	VarPointsTo(?heapCtx, ?heap, ?ctx, ?var), Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+
+print3 "var points-to entries with app heap" \
+	$(count '_Result(_, _, _)' '_Result(?heap, ?ctx, ?var) <-
+	Stats:InsensHeapVarPointsTo(?heap, ?ctx, ?var), Stats:ApplicationHeap(?heap).') \
+	$(count '_Result(_, _, _, _)' '_Result(?heapCtx, ?heap, ?ctx, ?var) <-
+	VarPointsTo(?heapCtx, ?heap, ?ctx, ?var), Stats:ApplicationHeap(?heap).')
+print3 "var points-to entries with app base" \
+	$(count '_Result(_, _, _)' '_Result(?heapCtx, ?heap, ?var) <-
+	Stats:InsensBaseVarPointsTo(?heapCtx, ?heap, ?var), Var:DeclaringMethod(?var, ?method), Stats:Simple:ApplicationMethod(?method).') \
+	$(count '_Result(_, _, _, _)' '_Result(?heapCtx, ?heap, ?ctx, ?var) <-
+	VarPointsTo(?heapCtx, ?heap, ?ctx, ?var), Var:DeclaringMethod(?var, ?method), Stats:Simple:ApplicationMethod(?method).')
+print3 "var points-to entries with app heap+base" \
+	$(count '_Result(_, _)' '_Result(?heap, ?var) <- Stats:Simple:InsensVarPointsTo(?heap, ?var),
+	Var:DeclaringMethod(?var, ?method), Stats:Simple:ApplicationMethod(?method), Stats:ApplicationHeap(?heap).') \
+	$(count '_Result(_, _, _, _)' '_Result(?heapCtx, ?heap, ?ctx, ?var) <-
+	VarPointsTo(?heapCtx, ?heap, ?ctx, ?var),
+	Var:DeclaringMethod(?var, ?method), Stats:Simple:ApplicationMethod(?method), Stats:ApplicationHeap(?heap).')
+
+print3 "var points-to entries with reflective heap" \
+	$(count '_Result(_, _, _)' '_Result(?heap, ?ctx, ?var) <-
+	Stats:InsensHeapVarPointsTo(?heap, ?ctx, ?var), Stats:ReflectiveHeap(?heap).') \
+	$(count '_Result(_, _, _, _)' '_Result(?heapCtx, ?heap, ?ctx, ?var) <-
+	VarPointsTo(?heapCtx, ?heap, ?ctx, ?var), Stats:ReflectiveHeap(?heap).')
+
+echo
+
+print3 "#baseheaps that are arrays" \
+	$(count '_Result(_)' '_Result(?baseheap) <-
+	Stats:Simple:InsensArrayIndexPointsTo(_, ?baseheap).') \
+	$(count '_Result(_, _)' '_Result(?baseheapCtx, ?baseheap) <-
+	Stats:InsensHeapArrayIndexPointsTo(_, ?baseheapCtx, ?baseheap).')
+print3 "#app baseheaps that are arrays" \
+	$(count '_Result(_)' '_Result(?baseheap) <-
+	Stats:Simple:InsensArrayIndexPointsTo(_, ?baseheap), Stats:ApplicationHeap(?baseheap).') \
+	$(count '_Result(_, _)' '_Result(?baseheapCtx, ?baseheap) <-
+	Stats:InsensHeapArrayIndexPointsTo(_, ?baseheapCtx, ?baseheap), Stats:ApplicationHeap(?baseheap).')
+
+print3 "array points-to entries" $(size Stats:Simple:InsensArrayIndexPointsTo) $(size ArrayIndexPointsTo)
+print2 "array points-to entries with insens heap" $(size Stats:InsensHeapArrayIndexPointsTo)
+print2 "array points-to entries with insens baseheap" $(size Stats:InsensBaseHeapArrayIndexPointsTo)
+
+print3 "array points-to entries with app heap" \
+	$(count '_Result(_, _, _)' '
+	_Result(?heap, ?baseheapCtx, ?baseheap) <-
+	Stats:InsensHeapArrayIndexPointsTo(?heap, ?baseheapCtx, ?baseheap), Stats:ApplicationHeap(?heap).') \
+	$(count '_Result(_, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?baseheapCtx, ?baseheap) <-
+	ArrayIndexPointsTo(?heapCtx, ?heap, ?baseheapCtx, ?baseheap), Stats:ApplicationHeap(?heap).')
+print3 "array points-to entries with app baseheap" \
+	$(count '_Result(_, _, _)' '
+	_Result(?heapCtx, ?heap, ?baseheap) <-
+	Stats:InsensBaseHeapArrayIndexPointsTo(?heapCtx, ?heap, ?baseheap), Stats:ApplicationHeap(?baseheap).') \
+	$(count '_Result(_, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?baseheapCtx, ?baseheap) <-
+	ArrayIndexPointsTo(?heapCtx, ?heap, ?baseheapCtx, ?baseheap), Stats:ApplicationHeap(?baseheap).')
+print3 "array points-to entries with app heap+baseheap" \
+	$(count '_Result(_, _)' '_Result(?heap, ?baseheap) <-
+	Stats:Simple:InsensArrayIndexPointsTo(?heap, ?baseheap),
+	Stats:ApplicationHeap(?heap), Stats:ApplicationHeap(?baseheap).') \
+	$(count '_Result(_, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?baseheapCtx, ?baseheap) <-
+	ArrayIndexPointsTo(?heapCtx, ?heap, ?baseheapCtx, ?baseheap),
+	Stats:ApplicationHeap(?heap), Stats:ApplicationHeap(?baseheap).')
+
+print3 "array points-to entries with reflective heap" \
+	$(count '_Result(_, _, _)' '
+	_Result(?heap, ?baseheapCtx, ?baseheap) <-
+	Stats:InsensHeapArrayIndexPointsTo(?heap, ?baseheapCtx, ?baseheap), Stats:ReflectiveHeap(?heap).') \
+	$(count '_Result(_, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?baseheapCtx, ?baseheap) <-
+	ArrayIndexPointsTo(?heapCtx, ?heap, ?baseheapCtx, ?baseheap), Stats:ReflectiveHeap(?heap).')
+
+echo
+
+print3 "#baseheap-field combos" \
+	$(count '_Result(_, _)' '_Result(?sig, ?baseheap) <-
+	Stats:Simple:InsensInstanceFieldPointsTo(_, ?sig, ?baseheap).') \
+	$(count '_Result(_, _, _)' '_Result(?sig, ?baseheapCtx, ?baseheap) <-
+	Stats:InsensHeapInstanceFieldPointsTo(_, ?sig, ?baseheapCtx, ?baseheap).')
+print3 "#app baseheap-field combos" \
+	$(count '_Result(_, _)' '_Result(?sig, ?baseheap) <-
+	Stats:Simple:InsensInstanceFieldPointsTo(_, ?sig, ?baseheap), Stats:ApplicationHeap(?baseheap).') \
+	$(count '_Result(_, _, _)' '_Result(?sig, ?baseheapCtx, ?baseheap) <-
+	Stats:InsensHeapInstanceFieldPointsTo(_, ?sig, ?baseheapCtx, ?baseheap), Stats:ApplicationHeap(?baseheap).')
+
+print3 "instance-field points-to entries" $(size Stats:Simple:InsensInstanceFieldPointsTo) $(size InstanceFieldPointsTo)
+print2 "instance-field points-to entries with insens heap" $(size Stats:InsensHeapInstanceFieldPointsTo)
+print2 "instance-field points-to entries with insens baseheap" $(size Stats:InsensBaseHeapInstanceFieldPointsTo)
+
+print3 "instance-field points-to entries with app heap" \
+	$(count '_Result(_, _, _, _)' '
+	_Result(?heap, ?sig, ?baseheapCtx, ?baseheap) <-
+	Stats:InsensHeapInstanceFieldPointsTo(?heap, ?sig, ?baseheapCtx, ?baseheap), Stats:ApplicationHeap(?heap).') \
+	$(count '_Result(_, _, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap) <-
+	InstanceFieldPointsTo(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap), Stats:ApplicationHeap(?heap).')
+print3 "instance-field points-to entries with app baseheap" \
+	$(count '_Result(_, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?sig, ?baseheap) <-
+	Stats:InsensBaseHeapInstanceFieldPointsTo(?heapCtx, ?heap, ?sig, ?baseheap), Stats:ApplicationHeap(?baseheap).') \
+	$(count '_Result(_, _, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap) <-
+	InstanceFieldPointsTo(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap), Stats:ApplicationHeap(?baseheap).')
+print3 "instance-field points-to entries with app heap+baseheap" \
+	$(count '_Result(_, _, _)' '
+	_Result(?heap, ?sig, ?baseheap) <-
+	Stats:Simple:InsensInstanceFieldPointsTo(?heap, ?sig, ?baseheap),
+	Stats:ApplicationHeap(?heap), Stats:ApplicationHeap(?baseheap).') \
+	$(count '_Result(_, _, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap) <-
+	InstanceFieldPointsTo(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap),
+	Stats:ApplicationHeap(?heap), Stats:ApplicationHeap(?baseheap).')
+
+print3 "instance-field points-to entries with reflective heap" \
+	$(count '_Result(_, _, _, _)' '
+	_Result(?heap, ?sig, ?baseheapCtx, ?baseheap) <-
+	Stats:InsensHeapInstanceFieldPointsTo(?heap, ?sig, ?baseheapCtx, ?baseheap), Stats:ReflectiveHeap(?heap).') \
+	$(count '_Result(_, _, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap) <-
+	InstanceFieldPointsTo(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap), Stats:ReflectiveHeap(?heap).')
+print3 "instance-field points-to entries with reflective baseheap" \
+	$(count '_Result(_, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?sig, ?baseheap) <-
+	Stats:InsensBaseHeapInstanceFieldPointsTo(?heapCtx, ?heap, ?sig, ?baseheap), Stats:ReflectiveHeap(?baseheap).') \
+	$(count '_Result(_, _, _, _, _)' '
+	_Result(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap) <-
+	InstanceFieldPointsTo(?heapCtx, ?heap, ?sig, ?baseheapCtx, ?baseheap), Stats:ReflectiveHeap(?baseheap).')
+
+echo
+
+print2 "array-typed fields (statically)" \
+	$(count '_Result(_)' '_Result(?sig) <- FieldSignature(?sig, _, _, ?type), ArrayType(?type).')
+print2 "public array-typed fields (statically)" \
+	$(count '_Result(_)' '_Result(?sig) <-
+	FieldSignature(?sig, _, _, ?type), ArrayType(?type), FieldModifier(?mod, ?sig), ModifierRef:Value(?mod:"public").')
+print2 "private array-typed fields (statically)" \
+	$(count '_Result(_)' '_Result(?sig) <-
+	FieldSignature(?sig, _, _, ?type), ArrayType(?type), FieldModifier(?mod, ?sig), ModifierRef:Value(?mod:"private").')
+
+print3 "array baseheaps pointed-to by field" \
+	$(count '_Result(_, _)' '_Result(?sig, ?arrayheap) <-
+	Stats:Simple:InsensInstanceFieldPointsTo(?arrayheap, ?sig, _),
+	Stats:Simple:InsensArrayIndexPointsTo(_, ?arrayheap).') \
+	$(count '_Result(_, _, _)' '_Result(?sig, ?arrayheapCtx, ?arrayheap) <-
+	Stats:InsensBaseHeapInstanceFieldPointsTo(?arrayheapCtx, ?arrayheap, ?sig, _),
+	Stats:InsensHeapArrayIndexPointsTo(_, ?arrayheapCtx, ?arrayheap).')
+print3 "array baseheaps pointed-to by Object-typed field" \
+	$(count '_Result(_, _)' '_Result(?sig, ?arrayheap) <-
+	Stats:Simple:InsensInstanceFieldPointsTo(?arrayheap, ?sig, _),
+	Stats:Simple:InsensArrayIndexPointsTo(_, ?arrayheap),
+	FieldSignature(?sig, _, _, ?type), Type:Value(?type:"java.lang.Object").') \
+	$(count '_Result(_, _, _)' '_Result(?sig, ?arrayheapCtx, ?arrayheap) <-
+	Stats:InsensBaseHeapInstanceFieldPointsTo(?arrayheapCtx, ?arrayheap, ?sig, _),
+	Stats:InsensHeapArrayIndexPointsTo(_, ?arrayheapCtx, ?arrayheap),
+	FieldSignature(?sig, _, _, ?type), Type:Value(?type:"java.lang.Object").')
+
+echo
+
+#print2 "normal heap allocations (statically)" \
+#	$(count '_Result(_)' '_Result(?heap) <- AssignNormalHeapAllocation(?heap, _, _).')
+#print2 "\"insensitive\" heap allocations (1 entry per merged group of string constants)" \
+#	$(count '_Result(_)' '_Result(?heap) <- AssignContextInsensitiveHeapAllocation(?heap, _, _).')
+#print2 "\"merged\" heap allocations (#heap objects merged, not collapsed per const value)" \
+#	$(count '_Result(_)' '_Result(?heap) <- HeapAllocation:Merge[?heap] = _.')
+
+#	print2 "\"insensitive\" and NOT \"merged\" heap allocations" \
+#		$(count '_Result(_)' '_Result(?heap) <- AssignContextInsensitiveHeapAllocation(?heap, _, _), !HeapAllocation:Merge[?heap] = _.')
+#	print2 "\"merged\" and NOT \"insensitive\" heap allocations" \
+#		$(count '_Result(_)' '_Result(?heap) <- !AssignContextInsensitiveHeapAllocation(?heap, _, _), HeapAllocation:Merge[?heap] = _.')
+#	print2 "\"insensitive\" and \"merged\" heap allocations" \
+#		$(count '_Result(_)' '_Result(?heap) <- AssignContextInsensitiveHeapAllocation(?heap, _, _), HeapAllocation:Merge[?heap] = _.')
+
+print2 "app normal heap allocations (statically)" \
+	$(count '_Result(_)' '_Result(?heap) <- AssignNormalHeapAllocation(?heap, _, _), Stats:ApplicationHeap(?heap).')
+print2 "app \"insensitive\" heap allocations" \
+	$(count '_Result(_)' '_Result(?heap) <- AssignContextInsensitiveHeapAllocation(?heap, _, _), Stats:ApplicationHeap(?heap).')
+print2 "app \"merged\" heap allocations" \
+	$(count '_Result(_)' '_Result(?heap) <- HeapAllocation:Merge[?heap] = _, Stats:ApplicationHeap(?heap).')
+print2 "reflective heap allocations (statically)" $(size Stats:ReflectiveHeap)
+print2 "app reflective heap allocations (statically)" \
+	$(count '_Result(_)' '_Result(?heap) <- Stats:ReflectiveHeap(?heap), Stats:ApplicationHeap(?heap).')
+
+#print3 "total \"reachable\" heap objects (pointed-to by local var)" \
+#	$(size Stats:ReachableHeap) $(size Stats:ReachableHeapWithContext)
+#print3 "total \"reachable\" heap objects, app-allocated" \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:ReachableHeap(?heap), Stats:ApplicationHeap(?heap).') \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <-
+#	Stats:ReachableHeapWithContext(?heapCtx, ?heap), Stats:ApplicationHeap(?heap).')
+#print3 "total \"reachable\" heap objects, reflectively-allocated" \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:ReachableHeap(?heap), Stats:ReflectiveHeap(?heap).') \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <-
+#	Stats:ReachableHeapWithContext(?heapCtx, ?heap), Stats:ReflectiveHeap(?heap).')
+#print3 "total \"reachable\" heap objects, app-reflectively-allocated" \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:ReachableHeap(?heap), Stats:ApplicationHeap(?heap), Stats:ReflectiveHeap(?heap).') \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <-
+#	Stats:ReachableHeapWithContext(?heapCtx, ?heap), Stats:ApplicationHeap(?heap), Stats:ReflectiveHeap(?heap).')
+
+echo
+
+print3 "call-graph edges - app caller" \
+	$(count '_Result(_, _)' '_Result(?invocation, ?method) <-
+	Stats:Simple:InsensCallGraphEdge(?invocation, ?method),
+	Instruction:Method[?invocation] = ?callingMethod, Stats:Simple:ApplicationMethod(?callingMethod).') \
+	$(count '_Result(_, _, _, _)' '_Result(?caller, ?invocation, ?callee, ?method) <-
+	CallGraphEdge(?caller, ?invocation, ?callee, ?method),
+	Instruction:Method[?invocation] = ?callingMethod, Stats:Simple:ApplicationMethod(?callingMethod).')
+
+print3 "call-graph edges - app callee" \
+	$(count '_Result(_, _)' '_Result(?invocation, ?method) <-
+	Stats:Simple:InsensCallGraphEdge(?invocation, ?method), Stats:Simple:ApplicationMethod(?method).') \
+	$(count '_Result(_, _, _, _)' '_Result(?caller, ?invocation, ?callee, ?method) <-
+	CallGraphEdge(?caller, ?invocation, ?callee, ?method), Stats:Simple:ApplicationMethod(?method).')
+
+print3 "call-graph edges - app caller+callee" \
+	$(count '_Result(_, _)' '_Result(?invocation, ?method) <-
+	Stats:Simple:InsensCallGraphEdge(?invocation, ?method),
+	Instruction:Method[?invocation] = ?callingMethod, Stats:Simple:ApplicationMethod(?callingMethod), Stats:Simple:ApplicationMethod(?method).') \
+	$(count '_Result(_, _, _, _)' '_Result(?caller, ?invocation, ?callee, ?method) <-
+	CallGraphEdge(?caller, ?invocation, ?callee, ?method),
+	Instruction:Method[?invocation] = ?callingMethod, Stats:Simple:ApplicationMethod(?callingMethod), Stats:Simple:ApplicationMethod(?method).')
+
+print2 "refl call-graph edges" $(size ReflectiveCallGraphEdge)
+
+echo
+
+#print2 "reachable methods with no vars" \
+#	$(count '_Result(_)' '_Result(?method) <- Reachable(?method), !_WithVar(?method).
+#	_WithVar(?method) <- Var:DeclaringMethod(_, ?method).')
+#print2 "non-reachable methods" \
+#	$(count '_Result(_)' '_Result(?method) <- Var:DeclaringMethod(_, ?method), !Reachable(?method).')
+#print2 "non-reachable app methods" \
+#	$(count '_Result(_)' '_Result(?method) <- Var:DeclaringMethod(_, ?method), Stats:Simple:ApplicationMethod(?method), !Reachable(?method).')
+#	print2 "#vars (insens) in non-reachable methods" \
+#		$(count '_Result(_)' '_Result(?var) <-
+#		Var:DeclaringMethod(?var, ?method), !Reachable(?method).')
+#	print2 "#vars (insens) in non-reachable methods and in VarPointsTo" \
+#		$(count '_Result(_)' '_Result(?var) <-
+#		Var:DeclaringMethod(?var, ?method), Stats:Simple:InsensVarPointsTo(_, ?var), !Reachable(?method).')
+#	print2 "#heaps pointed (insens) by vars in non-reachable methods" \
+#		$(count '_Result(_)' '_Result(?heap) <-
+#		Var:DeclaringMethod(?var, ?method), Stats:Simple:InsensVarPointsTo(?heap, ?var), !Reachable(?method).')
+print2 "#heaps allocated in non-reachable methods" \
+	$(count '_Result(_)' '_Result(?heap) <- AssignNormalHeapAllocation(?heap, _, ?method), !Reachable(?method).')
+
+echo
+
+printPercentages "var points to (context-sensitive)" Stats:VarCountSorted Stats:Vars
+printPercentages "var points to (heap context-insensitive)" Stats:InsensHeapVarCountSorted Stats:Vars
+printPercentages "var points to (base context-insensitive)" Stats:InsensBaseVarCountSorted Stats:InsensVars
+printPercentages "var points to (heap+base context-insensitive)" Stats:InsensVarCountSorted Stats:InsensVars
+
+echo
+
+printPercentages "array points to (context-sensitive)" Stats:ArrayCountSorted Stats:Arrays
+printPercentages "array points to (heap context-insensitive)" Stats:InsensHeapArrayCountSorted Stats:Arrays
+printPercentages "array points to (baseheap context-insensitive)" Stats:InsensBaseHeapArrayCountSorted Stats:InsensArrays
+printPercentages "array points to (heap+baseheap context-insensitive)" Stats:InsensArrayCountSorted Stats:InsensArrays
+
+echo
+
+printPercentages "field points to (context-sensitive)" Stats:FieldCountSorted Stats:Fields
+printPercentages "field points to (heap context-insensitive)" Stats:InsensHeapFieldCountSorted Stats:Fields
+printPercentages "field points to (baseheap context-insensitive)" Stats:InsensBaseHeapFieldCountSorted Stats:InsensFields
+printPercentages "field points to (heap+baseheap context-insensitive)" Stats:InsensFieldCountSorted Stats:InsensFields
+
+echo
+
+#printPercentages "throw points-to per method (context-sensitive)" Stats:ThrowsPerMethodCountSorted Stats:ThrowMethods
+#printPercentages "throw points-to per method (heap context-insensitive)" Stats:InsensHeapThrowsPerMethodCountSorted Stats:ThrowMethods
+#printPercentages "throw points-to per method (method context-insensitive)" Stats:InsensMethodThrowsPerMethodCountSorted Stats:InsensThrowMethods
+#printPercentages "throw points-to per method (heap+method context-insensitive)" Stats:InsensThrowsPerMethodCountSorted Stats:InsensThrowMethods
+
+#echo
+
+printPercentages "#contexts for a reachable method (A)" Stats:MethodContextCountSorted Stats:Methods
+
+#printf "%-80s %'d / %'d / %'d / %'d / %'d / %'d / %'d (min/median/60%%/75%%/90%%/95%%/max)\n" "#local vars per percentage of (A)" \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[1] = ?method, Stats:InsensVarInReachableMethod(?var, ?method).') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[Stats:Methods[] / 2] = ?method, Stats:InsensVarInReachableMethod(?var, ?method).') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 60) / 100] = ?method, Stats:InsensVarInReachableMethod(?var, ?method).') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 75) / 100] = ?method, Stats:InsensVarInReachableMethod(?var, ?method).') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 90) / 100] = ?method, Stats:InsensVarInReachableMethod(?var, ?method).') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 95) / 100] = ?method, Stats:InsensVarInReachableMethod(?var, ?method).') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[Stats:Methods[]] = ?method, Stats:InsensVarInReachableMethod(?var, ?method).')
+#
+#printf "%-80s %'d / %'d / %'d / %'d / %'d / %'d / %'d (min/median/60%%/75%%/90%%/95%%/max)\n" "#heaps pointed (insens) by local vars per percentage of (A)" \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[1] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:Simple:InsensVarPointsTo(?heap, ?var).') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[Stats:Methods[] / 2] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:Simple:InsensVarPointsTo(?heap, ?var).') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 60) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:Simple:InsensVarPointsTo(?heap, ?var).') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 75) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:Simple:InsensVarPointsTo(?heap, ?var).') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 90) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:Simple:InsensVarPointsTo(?heap, ?var).') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 95) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:Simple:InsensVarPointsTo(?heap, ?var).') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[Stats:Methods[]] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:Simple:InsensVarPointsTo(?heap, ?var).') \
+#
+#printf "%-80s %'d / %'d / %'d / %'d / %'d / %'d / %'d (min/median/60%%/75%%/90%%/95%%/max)\n" "#heaps pointed (heap-sens) by local vars per percentage of (A)" \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <- Stats:MethodContextCountSortedBase[1] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:InsensBaseVarPointsTo(?heapCtx, ?heap, ?var).') \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <- Stats:MethodContextCountSortedBase[Stats:Methods[] / 2] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:InsensBaseVarPointsTo(?heapCtx, ?heap, ?var).') \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 60) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:InsensBaseVarPointsTo(?heapCtx, ?heap, ?var).') \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 75) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:InsensBaseVarPointsTo(?heapCtx, ?heap, ?var).') \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 90) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:InsensBaseVarPointsTo(?heapCtx, ?heap, ?var).') \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 95) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:InsensBaseVarPointsTo(?heapCtx, ?heap, ?var).') \
+#	$(count '_Result(_, _)' '_Result(?heapCtx, ?heap) <- Stats:MethodContextCountSortedBase[Stats:Methods[]] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Stats:InsensBaseVarPointsTo(?heapCtx, ?heap, ?var).') \
+#
+#printf "%-80s %'d / %'d / %'d / %'d / %'d / %'d / %'d (min/median/60%%/75%%/90%%/95%%/max)\n" "#refl heaps allocated (insens) by local vars per percentage of (A)" \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[1] = ?method,
+#	ReflectiveHeapAllocation[?instr, _] = ?heap, Instruction:Method[?instr] = ?method.') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[Stats:Methods[] / 2] = ?method,
+#	ReflectiveHeapAllocation[?instr, _] = ?heap, Instruction:Method[?instr] = ?method.') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 60) / 100] = ?method,
+#	ReflectiveHeapAllocation[?instr, _] = ?heap, Instruction:Method[?instr] = ?method.') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 75) / 100] = ?method,
+#	ReflectiveHeapAllocation[?instr, _] = ?heap, Instruction:Method[?instr] = ?method.') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 90) / 100] = ?method,
+#	ReflectiveHeapAllocation[?instr, _] = ?heap, Instruction:Method[?instr] = ?method.') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 95) / 100] = ?method,
+#	ReflectiveHeapAllocation[?instr, _] = ?heap, Instruction:Method[?instr] = ?method.') \
+#	$(count '_Result(_)' '_Result(?heap) <- Stats:MethodContextCountSortedBase[Stats:Methods[]] = ?method,
+#	ReflectiveHeapAllocation[?instr, _] = ?heap, Instruction:Method[?instr] = ?method.')
+#
+#printf "%-80s %'d / %'d / %'d / %'d / %'d / %'d / %'d (min/median/60%%/75%%/90%%/95%%/max)\n" "#object-typed vars per percentage of (A)" \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[1] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[Stats:Methods[] / 2] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 60) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 75) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 90) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[(Stats:Methods[] * 95) / 100] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").') \
+#	$(count '_Result(_)' '_Result(?var) <- Stats:MethodContextCountSortedBase[Stats:Methods[]] = ?method,
+#	Stats:InsensVarInReachableMethod(?var, ?method), Var:Type[?var] = ?type, Type:Value(?type:"java.lang.Object").')
+
+#printPercentages "#local vars in a reachable method (context-insensitive)" Stats:InsensMethodVarCountSorted Stats:InsensMethodsWithVars
+#printPercentages "#local vars in a reachable method (context-sensitive)" Stats:MethodVarCountSorted Stats:MethodsWithVars
+#
+#echo
+#
+#callingCtx=`echo $analysis | sed -r 's/^([0-9]+).*$/\1/;s/^[^0-9].*/0/'`
+#heapCtx=`echo $analysis | sed -r 's/.*\+([0-9]+)-heap/\1/;s/.*heap/1/;s/^.*[^0-9]+$/0/'`
+#removeAnyRegex='s/,[ ]*_//'
+#
+#echo "AnyHeapAbstraction(_), AnyContext(_)" > tmp/varPoints
+#cpp -CC -P -include logic/$analysis/macros.logic tmp/varPoints tmp/preprocessedVarPoints
+#anyParams=`tail -n 1 tmp/preprocessedVarPoints`
+#lessAnyParams=`echo $anyParams | sed -r "$removeAnyRegex"`
+#
+#echo "HeapContext(?heapCtx, ?heap), Context(?callingCtx, ?var)" > tmp/varPoints
+#cpp -CC -P -include logic/$analysis/macros.logic tmp/varPoints tmp/preprocessedVarPoints
+#params=`tail -n 1 tmp/preprocessedVarPoints`
+#
+#removeHeapStartRegex='s/\?heapCtxCtx[0-9]*,[ ]*//'
+#ignoreHeapStartRegex='s/\?heapCtxCtx[0-9]*,/_,/'
+#if test $heapCtx -ge 1; then
+#	lessHeapStart=`echo $params | sed -r "$removeHeapStartRegex"`
+#	ignoredHeapStart=`echo $params | sed -r "$ignoreHeapStartRegex"`
+#	print2 "var points-to missing syntactically the first heap context" \
+#		$(count '_Result('"$lessAnyParams"')' '_Result('"$lessHeapStart"') <- VarPointsTo('"$ignoredHeapStart"').')
+#fi
+#removeHeapEndRegex='s/\?heapCtxCtx[0-9]*,[ ]*(\?heap,)/\1/'
+#ignoreHeapEndRegex='s/\?heapCtxCtx[0-9]*,[ ]*(\?heap,)/_, \1/'
+#if test $heapCtx -gt 1; then
+#	lessHeapEnd=`echo $params | sed -r "$removeHeapEndRegex"`
+#	ignoredHeapEnd=`echo $params | sed -r "$ignoreHeapEndRegex"`
+#	print2 "var points-to missing syntactically the last heap context" \
+#		$(count '_Result('"$lessAnyParams"')' '_Result('"$lessHeapEnd"') <- VarPointsTo('"$ignoredHeapEnd"').')
+#fi
+#
+#removeCallingStartRegex='s/(\?heap),[ ]*\?callingCtxCtx[0-9]*/\1/'
+#ignoreCallingStartRegex='s/(\?heap),[ ]*\?callingCtxCtx[0-9]*/\1, _/'
+#if test $callingCtx -ge 1; then
+#	lessCallingStart=`echo $params | sed -r "$removeCallingStartRegex"`
+#	ignoredCallingStart=`echo $params | sed -r "$ignoreCallingStartRegex"`
+#	print2 "var points-to missing syntactically the first calling context" \
+#		$(count '_Result('"$lessAnyParams"')' '_Result('"$lessCallingStart"') <- VarPointsTo('"$ignoredCallingStart"').')
+#fi
+#removeCallingEndRegex='s/\?callingCtxCtx[0-9]*,[ ]*(\?var)/\1/'
+#ignoreCallingEndRegex='s/\?callingCtxCtx[0-9]*,[ ]*(\?var)/_, \1/'
+#if test $callingCtx -gt 1; then
+#	lessCallingEnd=`echo $params | sed -r "$removeCallingEndRegex"`
+#	ignoredCallingEnd=`echo $params | sed -r "$ignoreCallingEndRegex"`
+#	print2 "var points-to missing syntactically the last calling context" \
+#		$(count '_Result('"$lessAnyParams"')' '_Result('"$lessCallingEnd"') <- VarPointsTo('"$ignoredCallingEnd"').')
+#fi
+#
+#lessAnyParams=`echo $lessAnyParams | sed -r "$removeAnyRegex"`
+#if test $heapCtx -ge 1 -a $callingCtx -ge 1; then
+#	lessHeapStartCallingStart=`echo $params | sed -r "$removeHeapStartRegex" | sed -r "$removeCallingStartRegex"`
+#	ignoredHeapStartCallingStart=`echo $params | sed -r "$ignoreHeapStartRegex" | sed -r "$ignoreCallingStartRegex"`
+#	print2 "var points-to missing syntactically the first heap + the first calling context" \
+#		$(count '_Result('"$lessAnyParams"')' '_Result('"$lessHeapStartCallingStart"') <- VarPointsTo('"$ignoredHeapStartCallingStart"').')
+#fi
+#if test $heapCtx -ge 1 -a $callingCtx -gt 1; then
+#	lessHeapStartCallingEnd=`echo $params | sed -r "$removeHeapStartRegex" | sed -r "$removeCallingEndRegex"`
+#	ignoredHeapStartCallingEnd=`echo $params | sed -r "$ignoreHeapStartRegex" | sed -r "$ignoreCallingEndRegex"`
+#	print2 "var points-to missing syntactically the first heap + the last calling context" \
+#		$(count '_Result('"$lessAnyParams"')' '_Result('"$lessHeapStartCallingEnd"') <- VarPointsTo('"$ignoredHeapStartCallingEnd"').')
+#fi
+#if test $heapCtx -gt 1 -a $callingCtx -ge 1; then
+#	lessHeapEndCallingStart=`echo $params | sed -r "$removeHeapEndRegex" | sed -r "$removeCallingStartRegex"`
+#	ignoredHeapEndCallingStart=`echo $params | sed -r "$ignoreHeapEndRegex" | sed -r "$ignoreCallingStartRegex"`
+#	print2 "var points-to missing syntactically the last heap + the first calling context" \
+#		$(count '_Result('"$lessAnyParams"')' '_Result('"$lessHeapEndCallingStart"') <- VarPointsTo('"$ignoredHeapEndCallingStart"').')
+#fi
+#if test $heapCtx -gt 1 -a $callingCtx -gt 1; then
+#	lessHeapEndCallingEnd=`echo $params | sed -r "$removeHeapEndRegex" | sed -r "$removeCallingEndRegex"`
+#	ignoredHeapEndCallingEnd=`echo $params | sed -r "$ignoreHeapEndRegex" | sed -r "$ignoreCallingEndRegex"`
+#	print2 "var points-to missing syntactically the last heap + the last calling context" \
+#		$(count '_Result('"$lessAnyParams"')' '_Result('"$lessHeapEndCallingEnd"') <- VarPointsTo('"$ignoredHeapEndCallingEnd"').')
+#fi

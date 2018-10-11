@@ -1,0 +1,98 @@
+#! /bin/bash
+
+function gen-export()
+{
+	bloxbatch -db $1 -exportCsv $2 -overwrite -exportDataDir tmp/export
+	# -exportFilePrefix $4
+}
+
+function main()
+{
+	# entities
+	gen-export $1 PrimitiveType
+	gen-export $1 ClassType
+	gen-export $1 ArrayType
+	gen-export $1 InterfaceType
+	gen-export $1 NullType
+	gen-export $1 ComponentType
+
+	# relations
+	gen-export $1 StringConstant
+	gen-export $1 ReifiedClass
+	gen-export $1 HeapAllocation:Type
+	gen-export $1 AssignHeapAllocation
+
+	gen-export $1 ActualParam
+	gen-export $1 AssignLocal
+	gen-export $1 AssignCast
+	gen-export $1 AssignReturnValue
+	gen-export $1 DirectSuperinterface
+	gen-export $1 DirectSuperclass
+	gen-export $1 FieldSignature
+	gen-export $1 FieldModifier
+	gen-export $1 FormalParam
+	gen-export $1 LoadInstanceField
+	gen-export $1 LoadArrayIndex
+	gen-export $1 LoadStaticField
+	gen-export $1 LoadPrimStaticField
+
+	gen-export $1 MethodDeclaration
+	gen-export $1 MethodDeclaration:Exception
+	gen-export $1 MethodModifier
+	gen-export $1 MethodSignature:SimpleName
+	gen-export $1 MethodSignature:Descriptor
+	gen-export $1 MethodSignature:Type
+
+	gen-export $1 ReturnVar
+
+	gen-export $1 SpecialMethodInvocation:Base
+	gen-export $1 SpecialMethodInvocation:Signature
+	gen-export $1 SpecialMethodInvocation:In
+
+	gen-export $1 VirtualMethodInvocation:Base
+	gen-export $1 VirtualMethodInvocation:Signature
+	gen-export $1 VirtualMethodInvocation:In
+	gen-export $1 VirtualMethodInvocation
+
+	gen-export $1 StaticMethodInvocation
+	gen-export $1 StaticMethodInvocation:In
+	gen-export $1 StaticMethodInvocation:Signature
+
+	gen-export $1 StoreInstanceField
+	gen-export $1 StoreArrayIndex
+	gen-export $1 StoreStaticField
+	gen-export $1 StorePrimStaticField
+
+	gen-export $1 Var:Type
+	gen-export $1 Var:DeclaringMethod
+
+	gen-export $1 ApplicationClass
+
+	gen-export $1 ThisVar
+	gen-export $1 Throw
+	gen-export $1 Throw:Method
+
+	gen-export $1 SimpleExceptionHandler
+	gen-export $1 ExceptionHandler:Method
+	gen-export $1 ExceptionHandler:Type
+	gen-export $1 ExceptionHandler:FormalParam
+	gen-export $1 ExceptionHandler:Begin
+	gen-export $1 ExceptionHandler:End
+	gen-export $1 ExceptionHandler:Previous
+
+	gen-export $1 Instruction:Index
+
+#gen-export $1 ClassConstant
+#gen-export $1 ExceptionHandlerRef
+#gen-export $1 FieldSignatureRef
+#gen-export $1 MethodDescriptorRef
+#gen-export $1 MethodInvocationRef
+#gen-export $1 MethodSignatureRef
+#gen-export $1 ModifierRef
+##gen-export $1 NormalHeapAllocationRef
+#gen-export $1 SimpleNameRef
+#gen-export $1 ThrowRef
+#gen-export $1 VarRef
+}
+
+main $1 

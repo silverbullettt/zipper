@@ -1,0 +1,105 @@
+#! /bin/bash
+# weave-client-logic <analysis>
+# reads one client code path per line of input
+
+analysis="$1"
+clientcode="$(</dev/stdin)"
+
+if [[ -z $DOOP_HOME ]]; then
+	echo "ERROR: environment variable DOOP_HOME is not set" >&2
+	exit 1
+fi
+
+# Remove old mirror
+rm -rf "$DOOP_HOME/logic/client/extensions"
+rm -rf "$DOOP_HOME/tmp/extensions"
+
+# Create catalogue
+catalogue="$DOOP_HOME/logic/client/client-extensions-catalogue.logic"
+: > "$catalogue"
+mkdir -p "$(dirname $catalogue)"
+
+# Temporarily change Internal Field Separator
+SAVEIFS=$IFS
+IFS=$( echo -en "\n\b" )
+clientfiles=""
+extensions="${DOOP_HOME}/tmp/extensions"
+
+echo "Client Code submitted for analysis:"
+for i in $clientcode; do echo -e "  $i"; done
+
+# For each client argument
+for i in $clientcode; do
+    if [[ -r $i ]]; then
+        cfile="$(readlink -f $i)"
+        cpath="$(basename $i)"
+        clientfiles=$([ "x$clientfiles" = "x" ] && echo "$cfile:$cpath" || echo -e "$clientfiles\n$cfile:$cpath")
+    elif [[ -d $i ]]; then
+        i="$(readlink -f $i)"
+        for j in $(find "$i" -type f -name '*.logic'); do
+            cfile="$j"
+            cpath="$(echo $j | sed -e 's:'$i'/\{0,1\}:'$(basename $i)'/:')"
+            clientfiles=$([ "x$clientfiles" = "x" ] && echo "$cfile:$cpath" || echo -e "$clientfiles\n$cfile:$cpath")
+        done
+    else
+        echo "error: illegal argument for client analysis \"$i\"" >&2
+        exit 1
+    fi
+done
+
+echo -e "Client Code files actually submitted:"
+: $((n = `echo "$clientfiles" | wc -l` - 1))
+
+# Empty extensions file
+> "$extensions"
+
+# Iterate over client files
+for i in $clientfiles; do
+    ofile="$(echo $i | cut -d: -f1)"
+    opath="$(echo $i | cut -d: -f2)"
+
+    # Check for duplicates
+    for j in $(echo "$clientfiles" | tail -$n); do
+        ifile="$(echo $j | cut -d: -f1)"
+        ipath="$(echo $j | cut -d: -f2)"
+        if [[ $ofile = $ifile ]]; then
+            echo "error: duplicate client file $ifile" >&2
+            exit 1
+        fi
+    done
+    : $(( n-- )) 
+
+    # Create temporary clone on the analysis directory
+    mfile="$DOOP_HOME/logic/$analysis/$opath"
+    mkdir -p $(dirname $mfile)
+    ln "$ofile" "$mfile"
+
+    # Preprocess file for macroexpansion to take effect
+    pfile="${DOOP_HOME}/tmp/extensions/$opath"
+    mkdir -p $(dirname $pfile)
+    preprocess "$mfile" "$pfile"
+
+    # Add to extension list (be careful to maintain order)
+    echo "$pfile" >> "$extensions"
+    # extlist=$([ "x$extlist" = "x" ] && echo "$pfile" || echo -e "$extlist\n$pfile")
+
+    # Unlink clone
+    unlink "$mfile"
+
+    # Create mirrored file
+    mfile="$(dirname $catalogue)/extensions/$opath"
+    mkdir -p "$(dirname $mfile)"
+    ln "$ofile" "$mfile"
+
+    # Add to catalogue
+    # echo "#line 1 \"$ofile\"" >> "$catalogue"
+    # echo "#include \"extensions/$opath\"" >> "$catalogue"
+
+    # Print filename and mirrored location
+    echo -e "  $ofile\n    -> extensions/$opath"
+done
+echo "[mirrored in \"$(dirname $catalogue)/extensions\" ]"
+IFS=$SAVEIFS
+
+# Delete empty directories under analysis
+find "${DOOP_HOME}/logic/$analysis/" -type d -empty -delete

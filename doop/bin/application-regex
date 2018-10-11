@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+#
+# Given an application jar and several other library jars, 
+# it determines a minimal regex that includes only the 
+# application classes (i.e. those included in the first 
+# jar).
+
+import sys, os, subprocess
+
+def getClasses(jarname):
+    classes = []
+    p = subprocess.Popen(["jar", "tf", jarname], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    for line in p.stdout.readlines():
+        line = line.rstrip()
+        if line.endswith(".class"):
+            classes.append(line.split('.')[0].replace('/', '.'))
+
+    retval = p.wait()
+    return classes
+
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print "Usage: %s JAR [JAR].." % (os.path.basename(sys.argv[0]))
+        sys.exit(1)
+
+    excluded = set()
+    excluded.add("*")
+    excluded.add("**")
+    
+    # For each jar but the first
+    for jar in sys.argv[2:]:
+        for clazz in (x.split('.') for x in getClasses(jar)):
+            # Add prefix to blacklist
+            for i in range(1, len(clazz)):
+                excluded.add('.'.join(clazz[:i]) + '.**')
+
+    # for pat in excluded: print pat
+
+    included = set()
+
+    # take every class of application jar
+    for clazz in getClasses(sys.argv[1]):
+        components = clazz.split('.')
+
+        # Check every possible prefix
+        for i in range(1, len(components)):
+            pat = '.'.join(components[:i]) + '.**'
+
+            # Make sure prefix is not in blacklist
+            if not pat in excluded:
+                included.add(pat[:-1] if i == len(components) - 1 else pat)
+                break
+        else:            
+            # The following line does not work for default package classes
+            # because of a bug in averroes. TODO: remove 'excluded.add("*")' 
+            # when bug gets fixed
+
+            pat = '.'.join(components[:-1]) + '.*' if len(components) > 1 else '*'
+            included.add(clazz if pat in excluded else pat)
+
+    # remove redundant entries
+    included = [x for x in included if not x.endswith('.*') or not x + '*' in included]
+
+    print ':'.join(sorted(included))

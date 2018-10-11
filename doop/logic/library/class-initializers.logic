@@ -1,0 +1,16 @@
+/**
+ * Class initializer ?method of a ?type.
+ *
+ * TODO declare this is a ReferenceType (or ClassOrInterfaceType?)
+ */
+ClassInitializer[?type] = ?method ->
+  MethodSignatureRef(?method),
+  Type(?type).
+
+/**
+ * TODO: this is not efficient.
+ */
+ClassInitializer[?type] = ?method <-
+  SimpleNameRef:Value(?simplename:"<clinit>"),
+  MethodDescriptorRef:Value(?descriptor:"void()"),
+  MethodImplemented[?simplename, ?descriptor, ?type] = ?method.

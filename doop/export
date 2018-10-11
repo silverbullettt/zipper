@@ -1,0 +1,37 @@
+#! /bin/bash
+
+# database pred arity file
+
+set -e
+
+this=$(pwd)
+
+function lb-export()
+{
+  local database=$1
+  local pred=$2
+  local arity=$3
+  local file="$(pwd)/$4"
+
+  local exportfile=tmp/$pred.export
+  mkdir -p $(dirname $exportfile)
+
+  echo -e "option,delimiter,\"\t\"" > $exportfile
+  echo "option,hasColumnNames,false" >> $exportfile
+  echo -n "fromPredicate,$pred" >> $exportfile
+  for i in $(seq $arity); do
+    echo -n ",$pred:$i" >> $exportfile
+  done
+  echo "" >> $exportfile
+
+  echo -n "toFile,\"$file\"" >> $exportfile
+  for i in $(seq $arity); do
+    echo -n ",column:$i,$pred:$i" >> $exportfile
+  done
+
+  echo "" >> $exportfile
+
+  bloxbatch -db $database -import $exportfile
+}
+
+lb-export $1 $2 $3 $4

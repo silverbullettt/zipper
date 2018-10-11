@@ -1,0 +1,41 @@
+/**
+ * There is no variable without a declared type.
+ */
+!(VarRef(?var), !(Var:Type[?var]=_)).
+
+/**
+ * There is no variable in VarPointsTo that is not reachable.
+ */
+Sanity:ReachableVar(?var) <-
+	Reachable(?method), Var:DeclaringMethod(?var, ?method).
+
+!(VarRef(?var), VarPointsTo(_, _, _, ?var), !(Sanity:ReachableVar(?var))).
+
+/**
+ * Every type is an array type, an interface type, a primitive type, or a class type.
+ */
+!(Type(?x), !ConcreteType(?x)).
+
+ConcreteType(?x) -> Type(?x).
+ConcreteType(?x) <-
+	InterfaceType(?x);
+	ClassType(?x);
+	ArrayType(?x);
+	PrimitiveType(?x);
+	NullType(?x).
+
+/**
+ * Every instruction is a concrete instruction.
+ */
+!(InstructionRef(?x), !ConcreteInstruction(?x)).
+
+ConcreteInstruction(?x) -> InstructionRef(?x).
+ConcreteInstruction(?x) <- 
+	MethodInvocationRef(?x);
+	HeapAllocationRef(?x);
+	ThrowRef(?x).
+
+/**
+ * Every heap allocation has a type
+ */
+!(HeapAllocationRef(?x), !(HeapAllocation:Type[?x]=_)).

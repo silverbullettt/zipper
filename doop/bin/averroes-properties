@@ -1,0 +1,137 @@
+#! /bin/bash
+
+set -u # Treat unset variables as an error
+
+# Requires JAVA_HOME environment variable to be set
+if [[ -z $JAVA_HOME ]]; then
+    printf "ERROR: please set the environment variable JAVA_HOME\n" >&2
+    exit 1
+fi
+
+# Requires DOOP_HOME environment variable to be set
+if [[ -z $DOOP_HOME ]]; then
+    printf "ERROR: please set the environment variable DOOP_HOME\n" >&2
+    exit 1
+fi
+
+if [ $# -ne 3 ]; then
+    printf "Usage: $0 <TAMIFLEX> <DYNAMICS> <OUTDIR>\n" >&2
+    exit 1
+fi
+
+# Set argument variables
+tamiflex="$1"
+dynamics="$2"
+outdir="$3"
+jar="$( meta-load injar )"
+deps="$( meta-load deps )"
+main="$( meta-load main )"
+apps="$( meta-load appregex )"
+
+total=`echo "$dynamics" | awk '{ print NF }'`
+fields=`cat $dynamics | head -n 1 | awk '{ print NF; }'`
+
+# Source configuration file to import common variables
+source "${DOOP_HOME}/doop.conf"
+
+# Create single dynamic file, by merging multiple dynamic files
+if [[ $total -ne 1 ]] || [[ $fields -ne 1 ]]; then
+    # Create temporary dynamic file
+    singledyn="${DOOP_HOME}/tmp/DYNAMIC"
+
+    # Erase previous contents
+    > "$singledyn"
+
+    # Append dynamic files
+    for dyn in $dynamics; do
+        cat $dyn | awk '{ print $NF; }' >> $singledyn
+    done
+
+    # Sort merged dynamics
+    sort -u -o $singledyn $singledyn
+else
+    singledyn="$dynamics"
+fi
+
+# Create empty tamiflex file
+if [[ -z $tamiflex ]]; then
+    # Create temporary tamiflex file
+    tamiflex="${DOOP_HOME}/tmp/TAMIFLEX"
+
+    # Erase previous contents
+    > "$tamiflex"
+fi
+
+linkedjars=""
+jre=$( meta-load jre )
+
+# Determine library-jars location
+case $jre in
+    "jre1.3")
+        lib="${doopconf_jre13}/lib"
+        ;;
+    "jre1.4")
+        lib="${doopconf_jre14}/lib/"
+        linkedjars="jce.jar jsse.jar"
+        ;;
+    "jre1.5")
+        lib="${doopconf_jre15}/lib"
+        linkedjars="jce.jar jsse.jar"
+        ;;
+    "jre1.6")
+        lib="${doopconf_jre16}/lib"
+        linkedjars="jce.jar jsse.jar"
+        ;;
+    "jre1.7")
+        lib="${doopconf_jre17}/lib"
+        linkedjars="jce.jar jsse.jar"
+        ;;
+    "system")
+        lib="${JAVA_HOME}/jre/lib"
+        linkedjars="jce.jar jsse.jar"
+        ;;
+    *) echo "error: unknown jre version" >&2; exit 1;;
+esac
+
+rtjar="$lib/rt.jar"
+
+# Augment dependencies with library jars, other than rt.jar
+for i in $linkedjars; do
+    deps="$deps:$lib/$i"
+done
+
+[[ ! -e $rtjar ]] && echo "ASSERTION_VIOLATION: non-existent $rtjar" && exit 1
+
+properties="averroes.properties"
+
+# Alternative property file for different averroes version
+# cat > $properties <<EOF
+# app_includes = $apps
+# main_class = $main
+# application = $jar
+# deps = $deps
+# dynamics = $singledyn
+# tamiflex = $tamiflex
+# output_dir = $outdir
+# EOF
+
+# Create averroes properties file
+cat > $properties <<EOF
+application_includes = $apps
+main_class = $main
+input_jar_files = $jar
+library_jar_files = $deps
+dynamic_classes_file = `readlink -f $singledyn`
+tamiflex_facts_file = `readlink -f $tamiflex`
+output_dir = $outdir
+jre = `readlink -f $rtjar`
+EOF
+
+# Print properties file in verbose mode
+flag-isset verbose && cat $properties
+
+# Renew averroes' properties file
+jar uf $AVERROES $properties
+
+# Remove temporary files
+rm $properties

@@ -1,0 +1,57 @@
+#! /bin/bash
+
+set -e
+
+if [[ $# < 3 ]]; then
+    echo "Usage: $0 DEST GLOB JAR.." >&2; exit 1
+fi
+
+# Save glob and advance arguments
+dest=$1; shift
+
+# Save glob and advance arguments
+glob="$1"; shift
+
+# List of classes
+klasses="class-list.tmp"
+classpath=""
+
+for jarfile in "$@"
+do
+    # Add to classpath
+    classpath="$classpath:$jarfile"
+done
+
+# Initialize class list
+java -cp lib/doop.jar:lib/asm-debug-all-4.1.jar \
+    doop.generator.jar.LibraryJarGenerator "$glob" "$@" > $klasses
+
+cat $klasses
+
+awk '
+BEGIN{ i = 0 }{
+  if (!(NR % 400))
+    i++
+  print > "empty."i
+}' $klasses
+
+
+for i in empty.*; do
+    # Initialize reference counter
+    ref=0
+
+    # Create reference containing class
+    cat > "Empty_${i##*.}.java" <<EOF
+public class Empty_${i##*.} {
+    public static void main(String[] args) {
+$(awk 'BEGIN{ i = 0 }{ printf "       %s var%d = %s.class.cast(null);\n", $0, i++, $0 }' $i)
+    }
+}
+EOF
+
+done
+
+javac -cp $classpath Empty_*.java
+jar cf $dest Empty_*.class
+
+rm Empty_*.java Empty_*.class $klasses empty.*

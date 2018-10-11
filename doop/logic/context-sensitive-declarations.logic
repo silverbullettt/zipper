@@ -1,0 +1,186 @@
+/**
+ * Generic declarations for context-sensitive pointer analysis.
+ */
+
+Context(?ctx) ->.
+lang:entity(`Context).
+lang:physical:storageModel[`Context]="ScalableSparse".
+//lang:physical:capacity[`Context] = 33554432.
+lang:physical:capacity[`Context] = 8388608.
+
+HContext(?hctx) ->.
+lang:entity(`HContext).
+lang:physical:storageModel[`HContext]="ScalableSparse".
+//lang:physical:capacity[`HContext] = 33554432.
+lang:physical:capacity[`HContext] = 8388608.
+
+VarPointsTo(?hctx, ?heap, ?ctx, ?var) ->
+  HContext(?hctx), HeapAllocationRef(?heap), Context(?ctx), VarRef(?var).
+
+#if defined FIELD_BASED_STATIC
+InstanceFieldPointsTo(?hctx, ?heap, ?sig) ->
+  HContext(?hctx), HeapAllocationRef(?heap),
+  FieldSignatureRef(?sig).
+#elif defined FIELD_BASED_DYNAMIC
+InstanceFieldPointsTo(?hctx, ?heap, ?sig, ?basetype) ->
+  HContext(?hctx), HeapAllocationRef(?heap),
+  FieldSignatureRef(?sig),
+  Type(?basetype).
+#else
+InstanceFieldPointsTo(?hctx, ?heap, ?sig, ?basehctx, ?baseheap) ->
+  HContext(?hctx), HeapAllocationRef(?heap),
+  FieldSignatureRef(?sig),
+  HContext(?basehctx), HeapAllocationRef(?baseheap).
+#endif
+
+StaticFieldPointsTo(?hctx, ?heap, ?sig) ->
+  FieldSignatureRef(?sig),
+  HContext(?hctx), HeapAllocationRef(?heap).
+
+// array-element insensitive
+ArrayIndexPointsTo(?hctx, ?heap, ?basehctx, ?baseheap) ->
+  HContext(?basehctx), HeapAllocationRef(?baseheap),
+  HContext(?hctx), HeapAllocationRef(?heap).
+
+Assign(?type, ?toCtx, ?to, ?fromCtx, ?from) ->
+  Type(?type),
+  Context(?toCtx), VarRef(?to),
+  Context(?fromCtx), VarRef(?from).
+
+/**
+ * Call graph
+ */
+CallGraphEdge(?callerCtx, ?invocation, ?calleeCtx, ?method) ->
+  Context(?callerCtx), CallGraphEdgeSourceRef(?invocation),
+  Context(?calleeCtx), MethodSignatureRef(?method).
+
+/**
+ * Reachable
+ */
+Reachable(?method) ->
+  MethodSignatureRef(?method).
+
+ReachableContext(?ctx, ?method) ->
+  Context(?ctx), MethodSignatureRef(?method).
+
+OptLoadInstanceField(?to, ?signature, ?base) ->
+  VarRef(?base),
+  FieldSignatureRef(?signature),
+  VarRef(?to).
+
+OptLoadStaticField(?ctx, ?to, ?signature) ->
+  FieldSignatureRef(?signature),
+  Context(?ctx), VarRef(?to).
+
+OptStoreStaticField(?signature, ?from) ->
+  VarRef(?from),
+  FieldSignatureRef(?signature).
+
+OptStoreInstanceField(?from, ?signature, ?base) ->
+  VarRef(?from),
+  VarRef(?base),
+  FieldSignatureRef(?signature).
+
+/*
+ReachableSpecialMethodInvocation(?invocation, ?base) ->
+  MethodInvocationRef(?invocation),
+  VarRef(?base).
+
+ReachableVirtualMethodInvocation(?invocation, ?base) ->
+  MethodInvocationRef(?invocation),
+  VarRef(?base).
+*/
+
+OptLoadArrayIndex(?to, ?base) ->
+  VarRef(?base),
+  VarRef(?to).
+
+OptStoreArrayIndex(?from, ?base) ->
+  VarRef(?from),
+  VarRef(?base).
+
+/**
+ * Optimizations
+ */
+
+#if defined FIELD_BASED_STATIC
+OptLoadInstanceField2(?ctx, ?to, ?sig) ->
+  FieldSignatureRef(?sig), Context(?ctx), VarRef(?to).
+#else
+LoadHeapInstanceField(?ctx, ?to, ?sig, ?basehctx, ?baseheap) ->
+  HContext(?basehctx), HeapAllocationRef(?baseheap),
+  FieldSignatureRef(?sig),
+  Context(?ctx), VarRef(?to).
+#endif
+
+StoreHeapInstanceField(?sig, ?basehctx, ?baseheap, ?ctx, ?from) ->
+  Context(?ctx), VarRef(?from),
+  FieldSignatureRef(?sig),
+  HContext(?basehctx), HeapAllocationRef(?baseheap).
+
+LoadHeapArrayIndex(?ctx, ?to, ?basehctx, ?baseheap) ->
+  Context(?ctx), VarRef(?to),
+  HContext(?basehctx), HeapAllocationRef(?baseheap).
+
+StoreHeapArrayIndex(?basehctx, ?baseheap, ?ctx, ?from) ->
+  HContext(?basehctx), HeapAllocationRef(?baseheap),
+  Context(?ctx), VarRef(?from).
+
+AssignNormalHeapAllocation(?heap, ?var, ?inmethod) ->
+  HeapAllocationRef(?heap), VarRef(?var), MethodSignatureRef(?inmethod).
+
+AssignAuxiliaryHeapAllocation(?heap, ?var, ?inmethod) ->
+  HeapAllocationRef(?heap), VarRef(?var), MethodSignatureRef(?inmethod).
+
+AssignContextInsensitiveHeapAllocation(?heap, ?var, ?inmethod) ->
+  HeapAllocationRef(?heap), VarRef(?var), MethodSignatureRef(?inmethod).
+
+/**
+ * Special heap abstractions.
+ */
+SystemThreadGroup(?hctx, ?heap) ->
+  HContext(?hctx), HeapAllocationRef(?heap).
+
+MainThreadGroup(?hctx, ?heap) ->
+  HContext(?hctx), HeapAllocationRef(?heap).
+
+MainThread(?hctx, ?heap) ->
+  HContext(?hctx), HeapAllocationRef(?heap).
+
+
+/**
+ * Filter predicate for refinement-based/adaptive analyses
+ */
+
+SiteToRefine(?invocation) -> 
+  CallGraphEdgeSourceRef(?invocation).
+
+TempSiteToRefine(?invocation) -> 
+  CallGraphEdgeSourceRef(?invocation).
+
+ObjectToRefine(?heap) -> 
+  HeapAllocationRef(?heap).
+
+TempObjectToRefine(?heap) -> 
+  HeapAllocationRef(?heap).
+
+// Is the SiteToRefine the real list of objects needing
+// refinement or its negation?
+NegativeSiteFilter(?v) -> string(?v).
+TempNegativeSiteFilter(?v) -> string(?v).
+// I could also declare a constant: NegativeSiteFilter() ->. But this is not
+// exportable due to an apparent bug. Also, I tried boolean instead of string,
+// but this also fails during import 
+// ("cannot convert string 'boolean' to type '[].[boolean]')
+
+// Is the ObjectToRefine the real list of objects needing
+// refinement or its negation?
+NegativeObjectFilter(?v) -> string(?v) .
+TempNegativeObjectFilter(?v) -> string(?v).
+
+
+/**
+ * Predicate to store runtime info
+ */
+
+Stats:Runtime(?value, ?attr) -> decimal[64](?value), string(?attr).

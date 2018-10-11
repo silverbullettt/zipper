@@ -1,0 +1,62 @@
+#! /bin/bash
+#
+# Script to activate refinement logic.
+
+analysis="$1"
+database="$2"
+bloxbatch="$LOGICBLOX_HOME/bin/bloxbatch"
+
+echo "loading $analysis refinement facts "
+# despite what the bloxbatch -help says, "-importDelimited" doesn't quite work and
+# DO NOT use -importDir, or it will treat everything in there as a script. 2+ hours of my
+# life lost.
+
+# Note that using Temp... relations avoids complete re-evaluation when the refinement-delta.logic
+# is executed.
+cat > ${DOOP_HOME}/tmp/${analysis}-refine-site.import <<EOF
+option,delimiter,","
+option,hasColumnNames,false
+option,quotedValues,true
+option,escapeQuotedValues,true
+
+fromFile,"${DOOP_HOME}/tmp/${analysis}-TempSiteToRefine.csv",CallGraphEdgeSourceRef,CallGraphEdgeSourceRef
+toPredicate,SiteToRefine,CallGraphEdgeSourceRef
+EOF
+
+cat > ${DOOP_HOME}/tmp/${analysis}-negative-site.import <<EOF
+option,delimiter,","
+option,hasColumnNames,false
+
+fromFile,"${DOOP_HOME}/tmp/${analysis}-TempNegativeSiteFilter.csv",string,string
+toPredicate,NegativeSiteFilter,string
+EOF
+
+cat > ${DOOP_HOME}/tmp/${analysis}-refine-object.import <<EOF
+option,delimiter,","
+option,hasColumnNames,false
+option,quotedValues,true
+option,escapeQuotedValues,true
+
+fromFile,"${DOOP_HOME}/tmp/${analysis}-TempObjectToRefine.csv",HeapAllocationRef,HeapAllocationRef
+toPredicate,ObjectToRefine,HeapAllocationRef
+EOF
+
+cat > ${DOOP_HOME}/tmp/${analysis}-negative-object.import <<EOF
+option,delimiter,","
+option,hasColumnNames,false
+
+fromFile,"${DOOP_HOME}/tmp/${analysis}-TempNegativeObjectFilter.csv",string,string
+toPredicate,NegativeObjectFilter,string
+EOF
+
+$bloxbatch -db $database -import ${DOOP_HOME}/tmp/${analysis}-refine-site.import 
+$bloxbatch -db $database -import ${DOOP_HOME}/tmp/${analysis}-negative-site.import 
+$bloxbatch -db $database -import ${DOOP_HOME}/tmp/${analysis}-refine-object.import 
+$bloxbatch -db $database -import ${DOOP_HOME}/tmp/${analysis}-negative-object.import 
+
+echo "integrating $analysis refinement facts "
+
+# $bloxbatch -db $database -execute "+SiteToRefine(?heap,?invocation) <- TempSiteToRefine(?heap,?invocation)."
+# $bloxbatch -db $database -execute "+ObjectToRefine(?heap) <- TempObjectToRefine(?heap)."
+
+echo "performing refined analysis $analysis "

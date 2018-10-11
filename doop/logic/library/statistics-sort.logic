@@ -1,0 +1,88 @@
+// Declarations for sorted predicates
+Stats:VarCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensHeapVarCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensBaseVarCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensVarCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+
+Stats:ArrayCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensHeapArrayCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensBaseHeapArrayCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensArrayCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+
+Stats:FieldCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensHeapFieldCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensBaseHeapFieldCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensFieldCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+
+Stats:ThrowsPerMethodCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensHeapThrowsPerMethodCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensMethodThrowsPerMethodCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:InsensThrowsPerMethodCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+
+Stats:MethodContextCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:MethodContextCountSortedBase[?r] = ?method -> uint[32](?r), MethodSignatureRef(?method).
+Stats:InsensMethodVarCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+Stats:MethodVarCountSorted[?r] = ?n -> uint[32](?r), uint[32](?n).
+
+/*
+lang:compiler:disableWarning:BOTTOM_IDB[]=true.
+
+Stats:VarCountSorted[?r] = ?n -> VarsRank(?r), uint[32](?n).
+Stats:InsensHeapVarCountSorted[?r] = ?n -> VarsRank(?r), uint[32](?n).
+Stats:InsensBaseVarCountSorted[?r] = ?n -> InsensVarsRank(?r), uint[32](?n).
+Stats:InsensVarCountSorted[?r] = ?n -> InsensVarsRank(?r), uint[32](?n).
+
+Stats:ArrayCountSorted[?r] = ?n -> ArraysRank(?r), uint[32](?n).
+Stats:InsensHeapArrayCountSorted[?r] = ?n -> ArraysRank(?r), uint[32](?n).
+Stats:InsensBaseHeapArrayCountSorted[?r] = ?n -> InsensArraysRank(?r), uint[32](?n).
+Stats:InsensArrayCountSorted[?r] = ?n -> InsensArraysRank(?r), uint[32](?n).
+
+Stats:FieldCountSorted[?r] = ?n -> FieldsRank(?r), uint[32](?n).
+Stats:InsensHeapFieldCountSorted[?r] = ?n -> FieldsRank(?r), uint[32](?n).
+Stats:InsensBaseHeapFieldCountSorted[?r] = ?n -> InsensFieldsRank(?r), uint[32](?n).
+Stats:InsensFieldCountSorted[?r] = ?n -> InsensFieldsRank(?r), uint[32](?n).
+
+Stats:ThrowsPerMethodCountSorted[?r] = ?n -> ThrowsRank(?r), uint[32](?n).
+
+Stats:MethodContextCountSorted[?r] = ?n -> MethodsRank(?r), uint[32](?n).
+Stats:MethodVarCountSorted[?r] = ?n -> MethodVarsRank(?r), uint[32](?n).
+Stats:InsensMethodVarCountSorted[?r] = ?n -> InsensMethodVarsRank(?r), uint[32](?n).
+
+
+Stats:VarCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:VarCount[_,_] = ?count.
+Stats:InsensHeapVarCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensHeapVarCount[_,_] = ?count.
+Stats:InsensBaseVarCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensBaseVarCount[_] = ?count.
+Stats:InsensVarCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensVarCount[_] = ?count.
+
+Stats:ArrayCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:ArrayCount[_,_] = ?count.
+Stats:InsensHeapArrayCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensHeapArrayCount[_,_] = ?count.
+Stats:InsensBaseHeapArrayCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensBaseHeapArrayCount[_] = ?count.
+Stats:InsensArrayCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensArrayCount[_] = ?count.
+
+Stats:FieldCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:FieldCount[_,_,_] = ?count.
+Stats:InsensHeapFieldCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensHeapFieldCount[_,_,_] = ?count.
+Stats:InsensBaseHeapFieldCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensBaseHeapFieldCount[_,_] = ?count.
+Stats:InsensFieldCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensFieldCount[_,_] = ?count.
+
+Stats:ThrowsPerMethodCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:ThrowsPerMethodCount[_] = ?count.
+
+Stats:MethodContextCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:MethodContextCount[_] = ?count.
+Stats:MethodVarCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:MethodVarCount[_,_] = ?count.
+Stats:InsensMethodVarCountSorted[?r] = ?n <-
+	agg<<?n = bottom[?r](?count)>> Stats:InsensMethodVarCount[_] = ?count.
+*/

@@ -1,0 +1,25 @@
+#ifdef CLIENT_EXTENSIONS
+
+DummyConstructorObject(?obj) ->
+	HeapAllocationRef(?obj).
+
+
++InstructionRef(?dummy),
++InstructionRef:Value(?dummy:?string), 
++CallGraphEdgeSourceRef(?dummy),
++HeapAllocationRef(?dummy),
++HeapAllocation:Type[?dummy] = ?type,
++DummyConstructorObject(?dummy),
++AssignAuxiliaryHeapAllocation(?dummy, ?this, ?constructor)
+	<-
+	MethodSignatureRef(?constructor), 
+	MethodSignature:SimpleName[?constructor] = "<init>", 
+	MethodSignature:Type[?constructor] = ?type, 
+	Type:Value(?type:?typeStr),
+	MethodSignatureRef:Value(?constructor:?constrStr),
+	ThisVar[?constructor] = ?this, 
+	string:add[string:add["/new ", ?typeStr], "/dummy"] = ?postfix,
+	string:add[?constrStr, ?postfix] = ?string.
+
+
+#endif

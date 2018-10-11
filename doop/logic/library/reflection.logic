@@ -1,0 +1,646 @@
+/*************************************************************
+ * Reflection analysis
+ *
+ * We use a distinct heap abstraction for every java.lang.Class,
+ * i.e., for every class type that appears in the bytecode, for
+ * example '<class java.lang.String>'. The predicate ReifiedClass is
+ * used to look up the heap abstraction for a given type.
+ * 
+ * This allows us to track the type of a Class object and automate
+ * newInstance invocations (and in the future java.lang.reflect.Method
+ * and Constructor invocations as well).
+ *
+ * User configuration is required for Class.forName invocations. We
+ * might implement some string analysis in the future, but most common
+ * reflection cases use string manipulations for which a
+ * straightforward string analysis would not help.
+ * 
+ * Objects created by newInstance invocations are represented by a
+ * generated heap allocation, a combination of the invocation-site of
+ * newInstance and the type of the allocated object (see
+ * reflection-delta.logic).
+ *
+ * TODO Note that this analysis currently does not support reflective
+ *      use of reflection. If you really want to, you can hide uses of
+ *      reflection in this way. The issue here is that the current
+ *      code does not consider reflective method invocations, only
+ *      virtual method invocations. For example:
+ *      
+ *         MethodSignatureRef:Value(?getClass:"<java.lang.Object: java.lang.Class getClass()>"),
+ *         VirtualMethodInvocation:Signature[?invocation] = ?getClass,
+ *
+ *      Only checks for invocations of getClass in source code, not in
+ *      method invocations discovered during reflection analysis.
+ *
+ * @author Martin Bravenboer
+ * @author Yannis Smaragdakis
+ *************************************************************/
+
+/*************************************************************
+ * Object.getClass
+ *
+ * stable public interface
+ *     public final native Class getClass()
+ *
+ * Although Object.getClass is a reflection operation, it is easy to
+ * analyse statically, because we know the type of every heap
+ * allocation.
+ *************************************************************/
+
+/**
+ * find uses of getClass
+ */
+java:lang:Object:getClass(?to, ?from) <-
+  MethodSignatureRef:Value(?getClass:"<java.lang.Object: java.lang.Class getClass()>"),
+  VirtualMethodInvocation:Signature[?invocation] = ?getClass,
+  AssignReturnValue[?invocation] = ?to,
+  VirtualMethodInvocation:Base[?invocation] = ?from.
+
+/**
+ * evaluate getClass
+ */
+RecordImmutableMacro(?ctx, ?heap, ?immCtx),
+VarPointsTo(?immCtx, ?class, ?ctx, ?to) <-
+  java:lang:Object:getClass(?to, ?var),
+  VarPointsTo(_, ?heap, ?ctx, ?var),
+  HeapAllocation:Type[?heap] = ?type,
+  ReifiedClass[?type] = ?class.
+
+/*************************************************************
+ * Class.forName
+ *
+ * stable public interface
+ *     public static Class<?> forName(String className)
+ *     public static Class<?> forName(String name, boolean initialize, ClassLoader loader)
+ *
+ * native jre1.3
+ *     private static native Class forName0(String name, boolean initialize, ClassLoader loader)
+ *
+ * native openjdk
+ *     private static native Class forName0(String name, boolean initialize, ClassLoader loader)
+ *
+ *
+ * Class.forName is the main fragile point of a static pointer
+ * analysis. Arbitrary strings can be constructed by the program and
+ * used as an argument to Class.forName, so we cannot predict which
+ * classes they correspond to.
+ *
+ * Therefore, this is also the main user-configuration point (some
+ * other points-to analysis implementations configure newInstance, but
+ * we think Class.forName is the appropriate place)
+ *
+ * We do automatically support class name strings that occur as
+ * constants in the program. For those, configuration is not
+ * necessary.
+ *************************************************************/
+
+/**
+ * Find invocations of Class.forName
+ */
+java:lang:Class:forName(?invocation, ?inmethod) <-
+  MethodSignatureRef:Value(?forName:"<java.lang.Class: java.lang.Class forName(java.lang.String)>"),
+  StaticMethodInvocation(?invocation, ?forName, ?inmethod).
+
+java:lang:Class:forName(?invocation, ?inmethod) <-
+  MethodSignatureRef:Value(?forName:"<java.lang.Class: java.lang.Class forName(java.lang.String,boolean,java.lang.ClassLoader)>"),
+  StaticMethodInvocation(?invocation, ?forName, ?inmethod).
+
+/**
+ * Class.forName invocations with user-configured dynamic classes
+ */
+ReflectiveAssignClassConstant(?ctx, ?invocation, ?type) <-
+  java:lang:Class:forName(?invocation, ?inmethod),
+  ReachableContext(?ctx, ?inmethod),
+  Config:DynamicClass(?type, ?invocation).
+
+/**
+ * Class.forName invocations with string constant parameters
+ */
+
+// Note that this won't fire when we are in DISTINGUISH_NO_STRING_CONSTANTS
+// mode. The constant will never flow to the ?param.
+ReflectiveAssignClassConstant(?ctx, ?invocation, ?type) <-
+  java:lang:Class:forName(?invocation, ?inmethod),
+  ReachableContext(?ctx, ?inmethod),                         // recursive
+  java:lang:Class:forName:ActualParam[?invocation] = ?param,
+  VarPointsTo(_, ?constant, ?ctx, ?param),  // recursive
+  ClassNameStringConstant:Type(?type, ?constant).
+
+java:lang:Class:forName:ActualParam[?invocation] = ?param ->
+  MethodInvocationRef(?invocation),
+  VarRef(?param).
+
+java:lang:Class:forName:ActualParam[?invocation] = ?param <-
+  ParamIndexRef:Value(?zero:0),
+  ActualParam[?zero, ?invocation] = ?param,
+  java:lang:Class:forName(?invocation, _).
+
+/*************************************************************
+ * Class.getDeclaredMethods
+ *
+ * stable public interface
+ *    public Method[] getMethods()
+ *    public Method getMethod(String name, Class[] parameterTypes)
+ *    public Method[] getDeclaredMethods()
+ *    public Method getDeclaredMethod(String name, Class[] parameterTypes)
+ *
+ * jre1.3
+ *    private native Method[] getMethods0(int which);
+ *    private native Method getMethod0(String name, Class[] parameterTypes,
+ *
+ * openjdk
+ *    private native Method[] getDeclaredMethods0(boolean publicOnly);
+ *
+ *************************************************************/
+
+/**
+ * find invocations
+ */
+
+java:lang:Class:getDeclaredMethod(?to, ?param, ?from) <-
+  MethodSignatureRef:Value(?signature:"<java.lang.Class: java.lang.reflect.Method getDeclaredMethod(java.lang.String,java.lang.Class[])>"),
+  VirtualMethodInvocation:Signature[?invocation] = ?signature,
+  AssignReturnValue[?invocation] = ?to,
+  VirtualMethodInvocation:Base[?invocation] = ?from,
+  ParamIndexRef:Value(?zero:0),
+  ActualParam[?zero, ?invocation] = ?param.
+
+#ifndef ENABLE_REFLECTION_LOG
+/**
+ * evaluate
+ */
+
+// Note that this won't fire when we are in DISTINGUISH_NO_STRING_CONSTANTS
+// mode. The constant will never flow to the ?param.
+RecordImmutableMacro(?ctx, ?heap, ?hctx),
+VarPointsTo(?hctx, ?heap, ?ctx, ?to) <-
+  java:lang:Class:getDeclaredMethod(?to, ?param, ?from),
+  VarPointsTo(_, ?class, ?ctx, ?from),
+  ReifiedClass[?type] = ?class,
+  MethodSignature:Type[?signature] = ?type,
+  ReifiedMethod[?signature] = ?heap,
+  VarPointsTo(_, ?constant, ?ctx, ?param),
+  MethodNameStringConstant:Signature(?signature, ?constant).
+#endif // #ifndef ENABLE_REFLECTION_LOG
+
+////YS: Used to be:
+//
+//// Match every method name in the class!
+//RecordImmutableMacro(?ctx, ?heap, ?hctx),
+//VarPointsTo(?hctx, ?heap, ?ctx, ?to) <-
+//  java:lang:Class:getDeclaredMethod(?to, _, ?from),
+//  VarPointsTo(_, ?class, ?ctx, ?from),
+//  ReifiedClass[?type] = ?class,
+//  MethodSignature:Type[?signature] = ?type,
+//  ReifiedMethod[?signature] = ?heap.
+
+/*************************************************************
+ * Class.getConstructors
+ *
+ * stable public interface
+ *    public Constructor getConstructor(Class[] parameterTypes)
+ *    public Constructor[] getConstructors()
+ *    public Constructor[] getDeclaredConstructors()
+ *    public Constructor getDeclaredConstructor(Class[] parameterTypes)
+ *
+ * native jre1.3
+ *    private native Constructor[] getConstructors0(int which);
+ *    private native Constructor getConstructor0(Class[] parameterTypes, int which)
+ *
+ * native openjdk
+ *    private native Constructor[] getDeclaredConstructors0(boolean publicOnly);
+ *
+ * Confusingly, the difference between getConstructor and getDeclaredConstructor is
+ * that getConstructor only considers public constructors.
+ *
+ *************************************************************/
+
+/**
+ * find invocations
+ */
+java:lang:Class:getConstructor(?to, ?from) <-
+  MethodSignatureRef:Value(?signature:"<java.lang.Class: java.lang.reflect.Constructor getConstructor(java.lang.Class[])>"),
+  VirtualMethodInvocation:Signature[?invocation] = ?signature,
+  AssignReturnValue[?invocation] = ?to,
+  VirtualMethodInvocation:Base[?invocation] = ?from.
+
+java:lang:Class:getDeclaredConstructor(?to, ?from) <-
+  MethodSignatureRef:Value(?signature:"<java.lang.Class: java.lang.reflect.Constructor getDeclaredConstructor(java.lang.Class[])>"),
+  VirtualMethodInvocation:Signature[?invocation] = ?signature,
+  AssignReturnValue[?invocation] = ?to,
+  VirtualMethodInvocation:Base[?invocation] = ?from.
+
+#ifndef ENABLE_REFLECTION_LOG
+/**
+ * evaluate
+ */
+RecordImmutableMacro(?ctx, ?heap, ?hctx),
+VarPointsTo(?hctx, ?heap, ?ctx, ?to) <-
+  java:lang:Class:getConstructor(?to, ?from),
+  VarPointsTo(_, ?class, ?ctx, ?from),
+  ReifiedClass[?type] = ?class,
+  MethodSignature:Type[?signature] = ?type,
+  ModifierRef:Value(?public:"public"),
+  MethodModifier(?public, ?signature),
+  ReifiedConstructor[?signature] = ?heap.
+
+RecordImmutableMacro(?ctx, ?heap, ?hctx),
+VarPointsTo(?hctx, ?heap, ?ctx, ?to) <-
+  java:lang:Class:getDeclaredConstructor(?to, ?from),
+  VarPointsTo(_, ?class, ?ctx, ?from),
+  ReifiedClass[?type] = ?class,
+  MethodSignature:Type[?signature] = ?type,
+  ReifiedConstructor[?signature] = ?heap.
+#endif // #ifndef ENABLE_REFLECTION_LOG
+
+
+/*************************************************************
+ * Method.invoke
+ *
+ * stable public interface
+ *     public Object invoke(Object obj, Object[] args)
+ *
+ * jre1.3
+ *     public native Object invoke(Object obj, Object[] args)
+ *
+ * openjdk
+ *     something way too complicated ...
+ *
+ * Notes:
+ *
+ *   - currently we're simulating the public interface
+ *
+ *   - The specification of reflective method invocations is
+ *     generic. The logic of this section makes Method.invoke
+ *     available as a reflective method invocation site.
+ *     
+ ************************************************************/
+
+java:lang:reflect:Method:invoke(?invocation, ?base) <-
+  MethodSignatureRef:Value(?invoke:"<java.lang.reflect.Method: java.lang.Object invoke(java.lang.Object,java.lang.Object[])>"),
+  VirtualMethodInvocation:Signature[?invocation] = ?invoke,
+  VirtualMethodInvocation:Base[?invocation] = ?base.
+
+#ifdef ENABLE_REFLECTION_LOG
+ReflectiveMethodInvocation(?ctx, ?instruction, ?signature) <-
+  java:lang:reflect:Method:invoke(?instruction, _),
+  MethodInvoke:Log(?instruction, ?signature),
+  VirtualMethodInvocation:In(?instruction, ?inmethod),
+  ReachableContext(?ctx, ?inmethod).
+#else
+ReflectiveMethodInvocation(?ctx, ?instruction, ?signature) <-
+  java:lang:reflect:Method:invoke(?instruction, ?from),
+  VarPointsTo(_, ?method, ?ctx, ?from), // recursive
+  ReifiedMethod[?signature] = ?method.
+#endif
+
+ReflectiveBaseVar[?invocation] = ?base <-
+  java:lang:reflect:Method:invoke(?invocation, _),
+  ActualParam[?zero, ?invocation] = ?base,
+  ParamIndexRef:Value(?zero:0).
+
+ReflectiveAssignReturnValue[?invocation] = ?var <-
+  java:lang:reflect:Method:invoke(?invocation, _),
+  AssignReturnValue[?invocation] = ?var.
+
+ReflectiveActualParams[?invocation] = ?argsParam <-
+  java:lang:reflect:Method:invoke(?invocation, _),
+  ActualParam[?one, ?invocation] = ?argsParam,
+  ParamIndexRef:Value(?one:1).
+
+/*************************************************************
+ * Constructor.newInstance
+ *
+ * stable public interface
+ *     public Object newInstance(Object[] initargs)
+ *
+ * native jre1.3
+ *     public native Object newInstance(Object[] initargs)
+ *
+ * openjdk
+ *     something way too complicated ...
+ *
+ *
+ * Notes:
+ *
+ *   - currently we're simulating the public interface
+ *
+ *   - a constructor does not have a return value, so we do set the
+ *     ReflectiveAssignReturnValue.
+ *
+ *   - although the return value of newInstance does not necessarily
+ *     get assigned to a local variable, we assume that is the case
+ *     here in prepration of the nice specification language that is
+ *     upcoming (where this will be replaced by a separate heap
+ *     allocation and constructor invocation).
+ *     
+ *************************************************************/
+
+#ifdef ENABLE_REFLECTION_LOG
+ReflectiveAssignHeapAllocation(?invocation, ?type, ?ctx, ?to),
+ReflectiveSpecialMethodInvocation(?invocation, ?signature, ?ctx, ?to) <-
+  java:lang:reflect:Constructor:newInstance(?invocation, ?to, _),
+  ConstructorNewInstance:Log(?invocation, ?signature),
+  VirtualMethodInvocation:In(?invocation, ?inmethod),
+  ReachableContext(?ctx, ?inmethod),
+  MethodSignature:Type[?signature] = ?type.
+#else
+ReflectiveAssignHeapAllocation(?invocation, ?type, ?ctx, ?to),
+ReflectiveSpecialMethodInvocation(?invocation, ?signature, ?ctx, ?to) <-
+  java:lang:reflect:Constructor:newInstance(?invocation, ?to, ?base),
+  VarPointsTo(_, ?constructor, ?ctx, ?base), // recursive
+  ReifiedConstructor[?signature] = ?constructor,
+  MethodSignature:Type[?signature] = ?type.
+#endif
+
+ReflectiveBaseVar[?invocation] = ?to <-
+  java:lang:reflect:Constructor:newInstance(?invocation, ?to, _).
+
+ReflectiveActualParams[?invocation] = ?argsParam <-
+  java:lang:reflect:Constructor:newInstance(?invocation, _, _),
+  ActualParam[?zero, ?invocation] = ?argsParam,
+  ParamIndexRef:Value(?zero:0).
+
+/*************************************************************
+ * Class.newInstance
+ *
+ * stable public interface
+ *     public Object newInstance() 
+ *
+ * native jre1.3
+ *     private native Object newInstance0()
+ *
+ * native openjdk
+ *     none, implemented in java using java.lang.reflect.Constructor.newInstance
+ *
+ * Notes:
+ *
+ *    - Currently we're simulating the public interface
+ *
+ *    - For the OpenJDK there is a duplication of simulating, since we
+ *      also simulate reflective constructor invocations. We'll soon
+ *      sort out what needs to be in #ifdefs exactly.
+ *
+ *    - Class.newInstance is handled completely automatically. not
+ *      requiring any user-configuration. The reason why this is
+ *      possible is that we use a distinct heap abstraction for every
+ *      Class object of a distinct class.
+ *
+ *
+ * TODO This should really be replaced by assignments to method
+ *      declaration return values, but the JRE differences make this
+ *      slightly complicated right now: this would be restricted to
+ *      JRE1.3
+ *
+ * TODO For JRE1.4 and higher this should be replaced by a more
+ *      general simulation of reflective access to constructors
+ *      (newInstance is no longer native there).
+ *
+ *************************************************************/
+
+// (YANNIS) Simple optimization predicate. It matters. This used
+// to be inlined in its use site.
+OptClassToConstructor(?constructor, ?class) <-
+  ReifiedClass[?type] = ?class,
+  // find the constructor that will be invoked
+  MethodSignature:Type[?constructor] = ?type,
+  MethodSignature:SimpleName[?constructor] = ?simplename,
+  MethodSignature:Descriptor[?constructor] = ?descriptor,
+  MethodDescriptorRef:Value(?descriptor:"void()"),
+  SimpleNameRef:Value(?simplename:"<init>").
+
+#ifdef ENABLE_REFLECTION_LOG
+ReflectiveAssignHeapAllocation(?invocation, ?type, ?ctx, ?to),
+ReflectiveSpecialMethodInvocation(?invocation, ?constructor, ?ctx, ?to)
+  <-
+  java:lang:Class:newInstance(?invocation, ?to, _),
+  ClassNewInstance:Log(?invocation, ?type),
+  ReifiedClass[?type] = ?class,
+  VirtualMethodInvocation:In(?invocation, ?inmethod),
+  ReachableContext(?ctx, ?inmethod),
+  OptClassToConstructor(?constructor, ?class).
+#else
+ReflectiveAssignHeapAllocation(?invocation, ?type, ?ctx, ?to),
+ReflectiveSpecialMethodInvocation(?invocation, ?constructor, ?ctx, ?to)
+  <-
+  java:lang:Class:newInstance(?invocation, ?to, ?var),
+  VarPointsTo(_, ?class, ?ctx, ?var),
+  OptClassToConstructor(?constructor, ?class),
+  MethodSignature:Type[?constructor] = ?type.
+#endif
+
+
+ReflectiveBaseVar[?invocation] = ?to <-
+  java:lang:Class:newInstance(?invocation, ?to, _).
+
+/*************************************************************
+ * Class.getFields
+ *
+ * stable public interface
+ *     public Field getDeclaredField(String name)
+ *     public Field[] getDeclaredFields()
+ *     public Field getField(String name)
+ *     public Field[] getFields()
+ *
+ * native jre1.3
+ *     private native Field getField0(String name, int which)
+ *     private native Field[] getFields0(int which)
+ *
+ * native openjdk
+ *     private native Field[] getDeclaredFields0(boolean publicOnly)
+ *
+ * Notes:
+ *
+ *     - getDeclaredField will not reflect the length field of an
+ *       array class (nor will getDeclaredFields, getField and
+ *       getFields, although that is not documented).
+ *
+ * TODO getField is often used with a constant string literal
+ *      argument. We should optimize for that.
+ *
+ *************************************************************/
+
+/**
+ * find invocations
+ */
+java:lang:Class:getDeclaredField(?to, ?param, ?from) <-
+  MethodSignatureRef:Value(?signature:"<java.lang.Class: java.lang.reflect.Field getDeclaredField(java.lang.String)>"),
+  VirtualMethodInvocation:Signature[?invocation] = ?signature,
+  AssignReturnValue[?invocation] = ?to,
+  VirtualMethodInvocation:Base[?invocation] = ?from,
+  ParamIndexRef:Value(?zero:0),
+  ActualParam[?zero, ?invocation] = ?param.
+
+/**
+ * evaluate
+ */
+// Note that this won't fire when we are in DISTINGUISH_NO_STRING_CONSTANTS
+// mode. The constant will never flow to the ?param.
+RecordImmutableMacro(?ctx, ?heap, ?hctx),
+VarPointsTo(?hctx, ?heap, ?ctx, ?to) <-
+  java:lang:Class:getDeclaredField(?to, ?param, ?from),
+  VarPointsTo(_, ?class, ?ctx, ?from), // recursive
+  ReifiedClass[?type] = ?class,
+  Field:DeclaringClass[?signature] = ?type,
+  ReifiedField[?signature] = ?heap,
+  VarPointsTo(_, ?constant, ?ctx, ?param),
+  FieldNameStringConstant:Signature(?signature, ?constant).
+
+////YS: Used to be:
+//
+//// Match every field name in the class!
+//RecordImmutableMacro(?ctx, ?heap, ?hctx),
+//VarPointsTo(?hctx, ?heap, ?ctx, ?to) <-
+//  java:lang:Class:getDeclaredField(?to, _, ?from),
+//  VarPointsTo(_, ?class, ?ctx, ?from),
+//  ReifiedClass[?type] = ?class,
+//  Field:DeclaringClass[?signature] = ?type,
+//  ReifiedField[?signature] = ?heap.
+
+/*************************************************************
+ * Field.get
+ *
+ * stable public interface
+ *     public Object get(Object)
+ *
+ *************************************************************/
+
+/**
+ * Find invocations
+ *
+ * Notes:
+ *   - at this point, we cannot distinguish static fields from instance
+ *     fields.
+ *
+ * TODO refactor to have separate predicates.
+ */
+java:lang:reflect:Field:get(?invocation, ?to, ?field) <-
+  MethodSignatureRef:Value(?signature:"<java.lang.reflect.Field: java.lang.Object get(java.lang.Object)>"),
+  VirtualMethodInvocation:Signature[?invocation] = ?signature,
+  AssignReturnValue[?invocation] = ?to,
+  VirtualMethodInvocation:Base[?invocation] = ?field.
+
+java:lang:reflect:Field:get:base[?invocation] = ?base ->
+  MethodInvocationRef(?invocation),
+  VarRef(?base).
+
+java:lang:reflect:Field:get:base[?invocation] = ?base <-
+  java:lang:reflect:Field:get(?invocation, _, _),
+  ActualParam[?zero, ?invocation] = ?base,
+  ParamIndexRef:Value(?zero:0).
+
+
+/**
+ * Reflective load of field (instance or static)
+ */
+ReflectiveLoadField(?invocation, ?ctx, ?to, ?signature) ->
+  MethodInvocationRef(?invocation),
+  FieldSignatureRef(?signature),
+  Context(?ctx), VarRef(?to).
+
+ReflectiveLoadField(?invocation, ?ctx, ?to, ?signature) <-
+  java:lang:reflect:Field:get(?invocation, ?to, ?field),
+  VarPointsTo(_, ?fieldHeap, ?ctx, ?field),
+  ReifiedField[?signature] = ?fieldHeap.
+
+/**
+ * Load of static field. 
+ *
+ * Notes:
+ *
+ *   - For static fields, the actual argument of a call to get is not
+ *     relevant.
+ *
+ *   - The context of the reified field heap object does not matter:
+ *     it has no fields whose value is determined by the context of
+ *     the allocation.
+ *
+ * TODO Check if class initialization handled by reflective.logic.
+ */
+ReflectiveLoadStaticField(?ctx, ?to, ?signature) <-
+  ReflectiveLoadField(_, ?ctx, ?to, ?signature),
+  ModifierRef:Value(?static:"static"),
+  FieldModifier(?static, ?signature).
+
+/**
+ * Load of instance field.
+ */
+ReflectiveLoadInstanceField(?ctx, ?to, ?signature, ?ctx, ?base) <-
+  ReflectiveLoadField(?invocation, ?ctx, ?to, ?signature),
+  ModifierRef:Value(?static:"static"),
+  ! FieldModifier(?static, ?signature),
+  java:lang:reflect:Field:get:base[?invocation] = ?base.
+
+/*************************************************************
+ * Field.set
+ *
+ * stable public interface
+ *     public void set(Object, Object)
+ *
+ *************************************************************/
+
+/**
+ * Find invocations
+ */
+java:lang:reflect:Field:set(?invocation, ?field) ->
+  MethodInvocationRef(?invocation),
+  VarRef(?field).
+
+java:lang:reflect:Field:set(?invocation, ?field) <-
+  MethodSignatureRef:Value(?signature:"<java.lang.reflect.Field: void set(java.lang.Object,java.lang.Object)>"),
+  VirtualMethodInvocation:Signature[?invocation] = ?signature,
+  VirtualMethodInvocation:Base[?invocation] = ?field.
+
+/**
+ * The variable containing the new value of the field
+ */
+java:lang:reflect:Field:set:from[?invocation] = ?from ->
+  MethodInvocationRef(?invocation),
+  VarRef(?from).
+
+java:lang:reflect:Field:set:from[?invocation] = ?from <-
+  java:lang:reflect:Field:set(?invocation, _),
+  ActualParam[?one, ?invocation] = ?from,
+  ParamIndexRef:Value(?one:1).
+
+java:lang:reflect:Field:set:base[?invocation] = ?base ->
+  MethodInvocationRef(?invocation),
+  VarRef(?base).
+
+java:lang:reflect:Field:set:base[?invocation] = ?base <-
+  java:lang:reflect:Field:set(?invocation, _),
+  ActualParam[?zero, ?invocation] = ?base,
+  ParamIndexRef:Value(?zero:0).
+
+/**
+ * Store of field (instance or static)
+ */
+ReflectiveStoreField(?invocation, ?signature, ?ctx, ?var) ->
+  MethodInvocationRef(?invocation),
+  FieldSignatureRef(?signature),
+  Context(?ctx), VarRef(?var).
+
+ReflectiveStoreField(?invocation, ?signature, ?ctx, ?from) <-
+  java:lang:reflect:Field:set(?invocation, ?fieldVar),
+  VarPointsTo(_, ?fieldHeap, ?ctx, ?fieldVar),
+  ReifiedField[?signature] = ?fieldHeap,
+  java:lang:reflect:Field:set:from[?invocation] = ?from.
+
+/**
+ * Store of static field. 
+ *
+ * TODO Check if class initialization handled by reflective.logic.
+ */
+ReflectiveStoreStaticField(?signature, ?ctx, ?from) <-
+  ReflectiveStoreField(_, ?signature, ?ctx, ?from),
+  ModifierRef:Value(?static:"static"),
+  FieldModifier(?static, ?signature).
+
+/**
+ * Store of instance field.
+ */
+ReflectiveStoreInstanceField(?ctx, ?from, ?signature, ?ctx, ?base) <-
+  ReflectiveStoreField(?invocation, ?signature, ?ctx, ?from),
+  ModifierRef:Value(?static:"static"),
+  ! FieldModifier(?static, ?signature),
+  java:lang:reflect:Field:set:base[?invocation] = ?base.

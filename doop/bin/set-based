@@ -1,0 +1,42 @@
+#! /bin/bash
+#
+# Script to activate the set-based logic that removes redundant input facts
+# set-based <database> <n>
+
+database="$1"
+iter="$2"
+bloxbatch="$LOGICBLOX_HOME/bin/bloxbatch"
+
+if [[ -z $DOOP_HOME ]]; then
+    DOOP_HOME=`dirname $( dirname $( readlink -f $( which $0 ) ) )`
+fi
+
+source $DOOP_HOME/utils/timekeeper.sh
+
+echo -n "preprocessing/transforming input facts: analysis"
+timing $bloxbatch -db $database -addBlock -file $DOOP_HOME/logic/transform.logic
+	
+for i in $(seq 1 $iter); do
+    echo -n "preprocessing/transforming input facts: transformation (step $i)"
+	timing $bloxbatch -db $database -execute -file $DOOP_HOME/logic/transform-delta.logic
+done
+
+## TODO: remove??
+# echo -n "exporting altered input facts"
+# rm -rf $DOOP_HOME/tmp/export
+# mkdir -p $DOOP_HOME/tmp/export
+# timing ${DOOP_HOME}/gen-export $cachedatabase
+#
+# for f in $DOOP_HOME/tmp/export/*; do
+#     tail -n +2 $f > $DOOP_HOME/tmp/temp
+#     f2=$(echo $f | sed -r 's/\.csv/\.facts/ ; s/_/-/g')
+#     mv $DOOP_HOME/tmp/temp $f2
+#     rm $f
+# done
+#
+# rm -rf $cachefacts
+# rm -rf $cachedatabase
+# generateInput="false"
+# transformInput="false"
+# create-database
+# return

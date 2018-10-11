@@ -1,0 +1,278 @@
+#! /bin/bash
+
+set -e      # Exit immediately if a command exits with a nonzero exit status
+set -u      # Treat unset variables as an error
+#set -x     # Print commands and their arguments as they are executed (debugging)
+
+# Export commonly used variables for doop
+export DOOP_HOME=`dirname $( readlink -f $( which $0 ) )`
+
+# Source configuration file to import common variables
+source "${DOOP_HOME}/doop.conf"
+
+# Source all helper functions under utils/
+for i in ${DOOP_HOME}/utils/*.sh ; do
+    if [ -r "$i" ]; then
+        # Interactive mode
+        if [ "${-#*i}" != "$-" ]; then 
+            . "$i"
+        else
+            . "$i" >/dev/null
+        fi
+    fi
+done
+unset i
+
+check-env
+mkdir -p "$DOOP_HOME/tmp"
+init-checksums
+flag-set verbose
+
+# Default options
+preprocess-set-constant-flag "DISTINGUISH_REFLECTION_STRING_CONSTANTS"
+preprocess-append-flags "REFLECTION_STRING_FLOW_ANALYSIS" "ANALYZE_REFLECTION_SUBSTRINGS" "MERGE_REFLECTION_CONSTANTS" "MERGE_STRING_BUFFERS"
+preprocess-set-exception-flags "EXCEPTIONS_PRECISE"
+
+jre="system"
+os="unix"
+mainclass=""
+dynamics=""
+tamiflex=""
+bloxopts=""
+clientcode=""
+zipper=""
+
+# Store original command-line
+meta-store cmd "$*"
+
+# process options
+while test "${1:0:1}" = "-"; do
+  case $1 in
+    "--paddle-compat")
+          preprocess-append-flags "PADDLE_COMPAT"
+          preprocess-set-exception-flags; shift;;
+    "--disable-precise-exceptions")
+          preprocess-set-exception-flags; shift;;
+    "--enable-imprecise-exceptions")
+          preprocess-set-exception-flags "EXCEPTIONS_IMPRECISE"; shift;;
+    "--disable-merge-exceptions")
+          preprocess-set-exception-flags "EXCEPTIONS_PRECISE" "SEPARATE_EXCEPTION_OBJECTS"; shift;;
+    "--enable-experimental-exceptions")
+          preprocess-set-exception-flags "EXCEPTIONS_EXPERIMENTAL"; shift;;
+    "--enable-exceptions-filter")
+          preprocess-append-flags "EXCEPTIONS_FILTER"; shift;;
+    "--enable-exceptions-order")
+          preprocess-append-flags "EXCEPTIONS_ORDER"; shift;;
+    "--enable-exceptions-range")
+          preprocess-append-flags "EXCEPTIONS_RANGE"; shift;;
+    "--enable-exceptions-cs")
+          preprocess-append-flags "EXCEPTIONS_CS"; shift;;
+    "--disable-reflective-methods")
+          preprocess-append-flags "DISABLE_REFLECTIVE_METHS"; shift;;
+    "--disable-reflection")
+          preprocess-append-flags "DISABLE_REFLECTION" "DISABLE_REFLECTIVE_METHS"; shift;;
+    "--context-sensitive-reflection")
+          preprocess-append-flags "CONTEXT_SENSITIVE_REFLECTION"; shift;;
+    "--enable-exception-flow")
+          preprocess-append-flags "CLIENT_EXCEPTION_FLOW"; shift;;
+    "--distinguish-all-string-constants")
+          preprocess-set-constant-flag "DISTINGUISH_ALL_STRING_CONSTANTS"; shift;;
+    "--distinguish-reflection-string-constants")
+          preprocess-set-constant-flag "DISTINGUISH_REFLECTION_STRING_CONSTANTS"; shift;;
+    "--distinguish-no-string-constants")
+          preprocess-set-constant-flag "DISTINGUISH_NO_STRING_CONSTANTS"; shift;;
+    "--disable-reflection-string-flow-analysis")
+          preprocess-remove-flags "REFLECTION_STRING_FLOW_ANALYSIS"; shift;;
+    "--disable-reflection-substring-analysis")
+          preprocess-remove-flags "ANALYZE_REFLECTION_SUBSTRINGS"; shift;;
+    "--disable-merge-reflection-constants")
+          preprocess-remove-flags "MERGE_REFLECTION_CONSTANTS"; shift;;
+    "--disable-merge-string-buffers")
+          preprocess-remove-flags "MERGE_STRING_BUFFERS"; shift;;
+    "--no-context-repeat")
+          preprocess-append-flags "NO_CONTEXT_REPEAT"; shift;;
+    "--field-based-static")
+          preprocess-append-flags "FIELD_BASED_STATIC"; shift;;
+    "--field-based-dynamic")
+          preprocess-append-flags "FIELD_BASED_DYNAMIC"; shift;;
+    "--transform-input")
+          preprocess-append-flags "TRANSFORM_INPUT"; flag-set setbased; shift;;
+    "-ssa")
+          flag-set ssa; shift;;
+    "-c" | "--cache")
+          flag-set cache; shift;;
+    "--full-stats")
+          flag-set stats; shift;;
+    "--sanity")
+          flag-set sanity; shift;;
+    "--log-mem-stats")
+          flag-set memlog; shift;;
+    "--solo-run")
+          flag-set solo; shift;;
+    "--color")
+          flag-set color; shift;;
+    "-i" | "--interactive")
+          flag-set interactive; shift;;
+    "--averroes")
+          flag-set averroes; shift;;
+    "--allow-phantom")
+          flag-set phantom; shift;;
+    "-h" | "--help")
+          usage; exit 1;;
+    "-jre")
+          jre="jre$2"; shift 2;;
+    "-jre1.3" | "-jre1.4" | "-jre1.5" | "-jre1.6" | "-jre1.7")
+          jre="${1:1:6}"; shift;;
+    "-os")
+          os="$2"; shift 2;;
+    "-main")
+          mainclass="$2"; shift 2;;
+	"--incremental")
+		  flag-set incremental; shift;;
+    "-dynamic")
+          if [[ ! -e $2 ]]; then
+              echo "ERROR: Non-existent dynamic file \"$2\"" >&2
+              exit 1
+          fi
+          # Mark as cache dependency
+          append-files-inputsum "$2"
+          dynamics="${dynamics} $2"
+          shift 2;;
+    "-tamiflex")
+          if [[ ! -e $2 ]]; then
+              echo "ERROR: Non-existent tamiflex file \"$2\"" >&2
+              exit 1
+          fi
+          # Mark as cache dependency
+          append-files-inputsum "$2"
+          tamiflex="$2"
+          preprocess-append-flags "ENABLE_REFLECTION_LOG"
+          shift 2;;
+    "-client")
+          # Set preprocessor flag just once
+          if [[ -z $clientcode ]]; then
+              preprocess-append-flags "CLIENT_EXTENSIONS"
+              flag-set client
+          fi
+
+          # Append client extension path
+          clientcode=$([[ -z $clientcode ]] && echo "$2" || echo -e "$clientcode\n$2")
+          shift 2;;
+    "-zipper")
+          if [[ ! -e $2 ]]; then
+              echo "ERROR: Non-existent zipper file \"$2\"" >&2
+              exit 1
+          fi
+          # Set Zipper file and macro
+          zipper="$2"
+          preprocess-append-flags "ENABLE_ZIPPER";
+          shift 2;;
+      "-ci-app-cs-lib")
+          preprocess-append-flags "CI_APP_CS_LIB" ; shift;;
+    *)
+          echo "invalid option: $1" >&2; usage; exit 1;;
+  esac
+done
+
+# Enable colors
+flag-isset color && set-colors
+
+check-jre $jre
+check-os $os
+
+# Process the analysis argument
+if [[ -e ${DOOP_HOME}/logic/$1/analysis.logic ]]; then
+    analysis=$1
+    meta-store analysis "$analysis"
+else
+    printf "${C_RED}ERROR${C_WHITE}: unsupported analysis \"%s\"${C_RESET}\n" "$1" >&2
+    exit 1
+fi
+
+shift
+
+# Check if input jar was given
+if [[ $# == 0 || $1 == "--" ]]; then
+
+    # Injar is already set to empty as default during the jre check
+
+    echo -n "Building empty jar for incremental analysis"
+    timing $DOOP_HOME/bin/mk-library-jar "$INCR_EVAL_EMPTY" "$INCR_EVAL_GLOB" \
+        $( $DOOP_HOME/bin/jre-link-arguments $jre plain )
+
+    meta-store deps  "${EMPTY_JAR}"
+    meta-store main  "INCREMENTAL_BUILD_NO_MAIN"
+
+    flag-set libonly
+    flag-set phantom
+
+    echo "No input jar given. Analyzing library..."
+else
+    # Process the jar file argument (pass dynamics by reference)
+    check-injar "$1" "$mainclass" dynamics; shift
+fi
+
+unset mainclass
+
+# Additional arguments to be passed to bloxbatch
+if [ $# -ne 0 ] && [ $1 == "--" ]; then
+    shift; bloxopts="$bloxopts $@"
+fi
+
+printf "Bloxbatch-Options: %s\n" "$bloxopts"
+printf "${C_WHITE}Main-Class: ${C_GREEN}%s${C_RESET}\n" "$( meta-load main )"
+
+# Determine application classes
+apps=$( application-regex "$( meta-load injar )" "$( meta-load deps )")
+meta-store appregex "$apps"
+printf "${C_WHITE}Application-Classes: ${C_GREEN}${apps}${C_RESET}\n"
+unset apps
+
+# Renew averroes properties file
+if flag-isset averroes; then
+    ${DOOP_HOME}/bin/averroes-properties \
+        "$tamiflex" "$dynamics" "$AVERROES_OUTDIR"
+fi
+
+# Add the client code extensions into the main logic
+if flag-isset client; then
+    echo "$clientcode" | ${DOOP_HOME}/bin/weave-client-logic "$analysis"
+fi
+
+# Check that only one bloxbatch instance is running
+flag-isset solo && check-daemon
+
+# Create database and run analysis (see utils/analysis.sh)
+init-analysis
+create-database
+write-meta
+analyze "$dynamics" $bloxopts
+
+# Check disk footprint of database
+size=`pollFootprint $database`
+printf "%-80s %'.0f\n" "disk footprint (KB)" $size
+
+# Store footprint (TODO: store as metadata)
+$bloxbatch -db $database -execute "+Stats:Runtime($size, \"disk footprint (KB)\")."
+
+# Produce statistics
+run-stats $database
+link-result
+show-stats $database
+
+# Run refinement logic, if it is defined for the specific analysis
+if [[ -e ${DOOP_HOME}/logic/$analysis/refinement-delta.logic ]]
+then
+    reanalyze "$dynamics" $bloxopts
+    run-stats $database
+    link-result
+    show-stats $database
+fi
+
+# Check disk footprint of database
+size=`pollFootprint $database`
+printf "\n%-80s %'.0f\n" "disk footprint (with stats) (KB)" $size
+
+# Store footprint (TODO: store as metadata)
+$bloxbatch -db $database -execute \
+    "+Stats:Runtime($size, \"disk footprint (with stats) (KB)\")."

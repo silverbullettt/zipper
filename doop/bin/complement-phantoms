@@ -1,0 +1,34 @@
+#! /bin/bash
+
+set -u # Treat unset variables as an error
+
+# Requires JAVA_HOME environment variable to be set
+if [[ -z $JAVA_HOME ]]; then
+    printf "ERROR: please set the environment variable JAVA_HOME\n" >&2
+    exit 1
+fi
+
+# Requires DOOP_HOME environment variable to be set
+if [[ -z $DOOP_HOME ]]; then
+    printf "ERROR: please set the environment variable DOOP_HOME\n" >&2
+    exit 1
+fi
+
+if [ $# -ne 1 ]; then
+    printf "Usage: $0 <OUTDIR>\n" >&2
+    exit 1
+fi
+
+injar="$( meta-load injar )"
+outdir="$1"
+
+# Source configuration file to import common variables
+source "${DOOP_HOME}/doop.conf"
+
+# Determine path of complemented jar
+outjar="${outdir}/$(basename ${injar/%.jar/-complemented.jar})"
+
+# Run jphantom
+java -jar ${JPHANTOM} $injar -o $outjar -v 0
+
+echo $outjar

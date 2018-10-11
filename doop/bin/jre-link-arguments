@@ -1,0 +1,28 @@
+#! /bin/bash
+
+# Requires DOOP_HOME environment variable to be set
+if [[ -z $DOOP_HOME ]]; then
+	printf "ERROR: please set the environment variable DOOP_HOME\n"
+	exit 1
+fi
+
+# Source configuration file to import common variables
+source "${DOOP_HOME}/doop.conf"
+
+case "$1" in
+  "jre1.3") linkargs="${doopconf_jre13}/lib/rt.jar";;
+  "jre1.4") linkargs="${doopconf_jre14}/lib/rt.jar ${doopconf_jre14}/lib/jce.jar ${doopconf_jre14}/lib/jsse.jar";;
+  "jre1.5") linkargs="${doopconf_jre15}/lib/rt.jar ${doopconf_jre15}/lib/jce.jar ${doopconf_jre15}/lib/jsse.jar";;
+  "jre1.6") linkargs="${doopconf_jre16}/lib/rt.jar ${doopconf_jre16}/lib/jce.jar ${doopconf_jre16}/lib/jsse.jar";;
+  "jre1.7") linkargs="${doopconf_jre17}/lib/rt.jar ${doopconf_jre17}/lib/jce.jar ${doopconf_jre17}/lib/jsse.jar";;
+  "system") linkargs="${JAVA_HOME}/jre/lib/rt.jar ${JAVA_HOME}/jre/lib/jce.jar ${JAVA_HOME}/jre/lib/jsse.jar";;
+  *)        echo "error: unknown jre version"; exit 1;;
+esac
+
+if [[ $2 = "plain" ]]; then
+    echo $linkargs
+elif [[ $1 != "system" ]]; then
+    echo $linkargs | sed -r 's/(\S*\.jar)/-l \1/g'
+else
+    echo "-lsystem"
+fi
