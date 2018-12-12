@@ -448,10 +448,10 @@ VarPointsTo(?hctx, ?heap, ?calleeCtx, ?this) <-
   ThisVar[?tomethod] = ?this,
   SiteShouldNotBeRefined(?invocation).
 
+MergeImmutableMacro(?immCtx),
 CallGraphEdge(?callerCtx, ?invocation, ?immCtx, ?tomethod),
 VarPointsTo(?hctx, ?heap, ?immCtx, ?this) <-
   MergeBasisMacro(?callerCtx, ?invocation, ?hctx, ?heap),
-  MergeImmutableMacro(?immCtx),
   HeapAllocation:Type[?heap] = ?heaptype,
   VirtualMethodInvocation:SimpleName[?invocation] = ?simplename,
   VirtualMethodInvocation:Descriptor[?invocation] = ?descriptor,
@@ -565,10 +565,10 @@ VarPointsTo(?hctx, ?heap, ?calleeCtx, ?this) <-
   ThisVar[?tomethod] = ?this,
   SiteShouldNotBeRefined(?invocation).
 
+MergeImmutableMacro(?immCtx),
 CallGraphEdge(?callerCtx, ?invocation, ?immCtx, ?tomethod),
 VarPointsTo(?hctx, ?heap, ?immCtx, ?this) <-
   MergeBasisMacro(?callerCtx, ?invocation, ?hctx, ?heap),
-  MergeImmutableMacro(?immCtx),
   SpecialMethodInvocation:Signature[?invocation] = ?signature,
   MethodDeclaration[?signature] = ?tomethod,
   !ZipperContextSensitiveMethod(?tomethod),
