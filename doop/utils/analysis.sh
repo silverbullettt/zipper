@@ -75,26 +75,6 @@ function create-database()
             rm -rf $DOOP_HOME/tmp/facts
             mkdir -p $DOOP_HOME/tmp/facts
 
-            # Run jphantom if phantom refs not allowed
-            if ! flag-isset phantom; then
-                # Ensure that no dependencies were specified
-                if [[ $( meta-load deps ) == ${EMPTY_JAR} ]]
-                then
-                    echo "Running JPhantom..."
-                
-                    # Create complemented jar
-                    complement=$( ${DOOP_HOME}/bin/complement-phantoms ${DOOP_HOME}/tmp )
-
-                    echo "JPhantom finished executing. Complement created: $complement"
-
-                    # new complemented jar location
-                    injar="$complement"
-
-                    # Remove complemented jar on exit
-                    trap "rm -rf $complement" EXIT
-                fi
-            fi
-
             # Run Averroes
             if flag-isset averroes; then
 
