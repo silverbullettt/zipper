@@ -10,10 +10,10 @@ This tutorial introduces how to build and use ZIPPER together with DOOP.
 ## Requirements
 
 - A 64-bit Ubuntu system
-- A Java 8 (or later) distribution
+- A Java 8 distribution
 - A Python 2.x interpreter
 
-It is recommended to set your JAVA_HOME environment variable to point to your Java installation.
+Please set your `JAVA_HOME` environment variable to point to your Java installation directory.
 
 
 ## Building ZIPPER
