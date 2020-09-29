@@ -157,11 +157,13 @@ QUERY={
     'DECLARING_CLASS_ALLOCATION':"DeclaringClassAllocation",
 }
 
-def dumpDoopResults(db_dir, dump_dir, app, query):
-    output = os.path.join(dump_dir, '%s.%s' % (app, query))
+DB_DIR = None
+DUMP_DIR = None
+def dumpQuery(query):
+    output = os.path.join(DUMP_DIR, '%s.%s' % (APP, query))
     if os.path.exists(output):
         os.remove(output) # remove old file
-    cmd = "bloxbatch -db %s -query '%s' > %s" % (db_dir, QUERY[query], output)
+    cmd = "bloxbatch -db %s -query '%s' > %s" % (DB_DIR, QUERY[query], output)
     # print cmd
     os.system(cmd)
 
@@ -178,8 +180,14 @@ def dumpRequiredDoopResults(app, db_dir, dump_dir):
     ]
     if not os.path.isdir(dump_dir):
         os.makedirs(dump_dir)
-    for query in REQUIRED_QURIES:
-        dumpDoopResults(db_dir, dump_dir, app, query)
+    global APP, DB_DIR, DUMP_DIR
+    APP, DB_DIR, DUMP_DIR = app, db_dir, dump_dir
+    n = min(len(REQUIRED_QURIES), multiprocessing.cpu_count())
+    pool = multiprocessing.Pool(n)
+    # dump queries with multiprocesses
+    pool.map(dumpQuery, REQUIRED_QURIES)
+    pool.close()
+    pool.join()
 
 def runZipper(app, cache_dir, out_dir):
     zipper_file = os.path.join(out_dir, \
@@ -198,7 +206,6 @@ def runZipper(app, cache_dir, out_dir):
         cmd += ' -thread %d ' % ZIPPER_THREAD
     # print cmd
     os.system(cmd)
-
     return zipper_file
 
 def runMainAnalysis(args, zipper_file):
