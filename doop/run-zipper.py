@@ -189,9 +189,12 @@ def dumpRequiredDoopResults(app, db_dir, dump_dir):
     pool.close()
     pool.join()
 
-def runZipper(app, cache_dir, out_dir):
+def runZipper(app, cache_dir, out_dir, express):
+    suffix = ''
+    if express:
+        suffix = '-express'
     zipper_file = os.path.join(out_dir, \
-        '%s-ZipperPrecisionCriticalMethod.facts' % app)
+        '%s-ZipperPrecisionCriticalMethod%s.facts' % (app, suffix))
     if os.path.exists(zipper_file):
         os.remove(zipper_file) # remove old file
 
@@ -204,6 +207,8 @@ def runZipper(app, cache_dir, out_dir):
     cmd += ' -out %s ' % out_dir
     if ZIPPER_THREAD > 1:
         cmd += ' -thread %d ' % ZIPPER_THREAD
+    if express:
+        cmd += ' -express %f ' % express
     # print cmd
     os.system(cmd)
     return zipper_file
@@ -216,9 +221,34 @@ def runMainAnalysis(args, zipper_file):
     os.system(cmd)
 
 def run(args):
+    def processArgs(args):
+        res = []
+        express = None
+        i = 0
+        while i < len(args):
+            if args[i] == '-e':
+                if isFloat(args[i+1]):
+                    express = float(args[i+1])
+                    i += 1
+                else:
+                    express = 0.05 # default threshold for Zipper-e
+            else:
+                res.append(args[i])
+            i += 1
+        return res, express
+
+    def isFloat(s):
+        try:
+            float(s)
+            return True
+        except ValueError:
+            return False
+    
+    args, express = processArgs(args)
+    # print args, express
     runPreAnalysis(args)
     dumpRequiredDoopResults(APP, DATABASE, ZIPPER_CACHE)
-    zipper_file = runZipper(APP, ZIPPER_CACHE, ZIPPER_OUT)
+    zipper_file = runZipper(APP, ZIPPER_CACHE, ZIPPER_OUT, express)
     runMainAnalysis(args, zipper_file)
 
 if __name__ == '__main__':
