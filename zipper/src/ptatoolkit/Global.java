@@ -55,6 +55,15 @@ public class Global {
         Global.isExpress = isExpress;
     }
 
+    private static float expressThreshold = 0.05f;
+
+    public static float getExpressThreshold() {
+        return expressThreshold;
+    }
+
+    public static void setExpressThreshold(float expressThreshold) {
+        Global.expressThreshold = expressThreshold;
+    }
 
     private static int thread = UNDEFINE;
 

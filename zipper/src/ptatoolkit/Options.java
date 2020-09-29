@@ -147,6 +147,18 @@ public class Options {
 				Global.setEnableUnwrappedFlow(false);
 			} else if (args[i].equals("-express")) {
 				Global.setExpress(true);
+				if (i + 1 < args.length) {
+					try {
+						float threshold = Float.parseFloat(args[i + 1]);
+						// Float.parseFloat() succeeds (without exception),
+						// then the next argument is a float, and we take
+						// it as express threshold
+						i = shift(args, i);
+						Global.setExpressThreshold(threshold);
+					} catch (NumberFormatException e) {
+						e.printStackTrace();
+					} // Not a float
+				}
 			} else if (args[i].equals("-thread")) {
 				i = shift(args, i);
 				Global.setThread(Integer.parseInt(args[i]));

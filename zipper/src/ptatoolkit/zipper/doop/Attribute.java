@@ -23,4 +23,8 @@ public final class Attribute {
     public static final String DECLARING_TYPE = "Declaring type";
 
     public static final String RETURN_TO = "Return to";
+
+    public static final String POINTS_TO_SET_SIZE = "Points-to set size";
+
+    public static final String VARS_IN = "Variables in";
 }

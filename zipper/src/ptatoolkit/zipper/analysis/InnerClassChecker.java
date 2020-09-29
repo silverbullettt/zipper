@@ -15,7 +15,6 @@ public class InnerClassChecker {
     }
 
     /**
-     *
      * @param pInner potential inner class
      * @param pOuter potential outer class
      * @return whether pInner is an inner class of pOuter

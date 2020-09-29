@@ -16,6 +16,7 @@ import ptatoolkit.pta.basic.Method;
 import ptatoolkit.pta.basic.Obj;
 import ptatoolkit.pta.basic.Type;
 import ptatoolkit.pta.basic.Variable;
+import ptatoolkit.util.MutableInteger;
 import ptatoolkit.util.Pair;
 import ptatoolkit.util.Timer;
 import ptatoolkit.util.Triple;
@@ -39,13 +40,16 @@ import static ptatoolkit.zipper.doop.Attribute.DECLARING;
 import static ptatoolkit.zipper.doop.Attribute.DECLARING_TYPE;
 import static ptatoolkit.zipper.doop.Attribute.MTD_ON;
 import static ptatoolkit.zipper.doop.Attribute.OBJECT_ASSIGNED;
+import static ptatoolkit.zipper.doop.Attribute.POINTS_TO_SET_SIZE;
 import static ptatoolkit.zipper.doop.Attribute.PTS;
 import static ptatoolkit.zipper.doop.Attribute.RETURN_TO;
+import static ptatoolkit.zipper.doop.Attribute.VARS_IN;
 
 public class DoopPointsToAnalysis implements PointsToAnalysis {
 
     private final DataBase db;
     private Set<Obj> allObjs;
+    private int totalPTSSize;
     private Set<Method> reachableMethods;
     // The following factories may be used by iterators
     private VariableFactory varFactory;
@@ -67,8 +71,7 @@ public class DoopPointsToAnalysis implements PointsToAnalysis {
         File dbDir = options.getDbPath() != null ?
                 new File(options.getDbPath()) : null;
         File cacheDir = new File(options.getCachePath());
-        DataBase db = new DataBase(dbDir, cacheDir, options.getApp());
-        this.db = db;
+        this.db = new DataBase(dbDir, cacheDir, options.getApp());
         init();
         ptaTimer.stop();
     }
@@ -93,6 +96,26 @@ public class DoopPointsToAnalysis implements PointsToAnalysis {
             }
             return Collections.emptySet();
         }
+    }
+
+    @Override
+    public int pointsToSetSizeOf(Variable var) {
+        if (var.hasAttribute(POINTS_TO_SET_SIZE)) {
+            MutableInteger size = (MutableInteger) var.getAttribute(POINTS_TO_SET_SIZE);
+            return size.intValue();
+        } else {
+            return 0;
+        }
+    }
+
+    @Override
+    public int totalPointsToSetSize() {
+        return totalPTSSize;
+    }
+
+    @Override
+    public Set<Variable> variablesDeclaredIn(Method method) {
+        return method.getAttributeSet(VARS_IN);
     }
 
     @Override
@@ -291,6 +314,7 @@ public class DoopPointsToAnalysis implements PointsToAnalysis {
         });
 
         // 3. build points-to sets of interesting variables
+        totalPTSSize = 0;
         buildPointsToSet(varFactory, objFactory, interestingVarNames);
 
         // compute the objects allocated in each method
@@ -333,13 +357,24 @@ public class DoopPointsToAnalysis implements PointsToAnalysis {
             String objName = list.get(0);
             String varName = list.get(1);
             Obj obj = objFactory.get(objName);
+            Variable var = varFactory.get(varName);
             if (interestingVarNames.contains(varName)) {
                 // add points-to set to var as its attribute
-                Variable var = varFactory.get(varName);
                 var.addToAttributeSet(PTS, obj);
             }
             allObjs.add(obj);
+            increasePointsToSetSizeOf(var);
+            ++totalPTSSize;
         });
+    }
+
+    private void increasePointsToSetSizeOf(Variable var) {
+        if (var.hasAttribute(POINTS_TO_SET_SIZE)) {
+            MutableInteger size = (MutableInteger) var.getAttribute(POINTS_TO_SET_SIZE);
+            size.increase();
+        } else {
+            var.setAttribute(POINTS_TO_SET_SIZE, new MutableInteger(1));
+        }
     }
 
     @Override
@@ -436,6 +471,7 @@ public class DoopPointsToAnalysis implements PointsToAnalysis {
             Variable var = varFactory.get(list.get(0));
             Method inMethod = mtdFactory.get(list.get(1));
             var.setAttribute(DECLARING, inMethod);
+            inMethod.addToAttributeSet(VARS_IN, var);
         });
     }
 

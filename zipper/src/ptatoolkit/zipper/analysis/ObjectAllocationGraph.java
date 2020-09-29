@@ -11,6 +11,7 @@ import ptatoolkit.util.graph.SCCMergedGraph;
 import ptatoolkit.util.graph.TopologicalSorter;
 import ptatoolkit.zipper.pta.PointsToAnalysis;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -57,15 +58,20 @@ public class ObjectAllocationGraph implements DirectedGraph<Obj> {
 
     private void init() {
         Map<Obj, Set<Method>> invokedMethods = computeInvokedMethods();
-        invokedMethods.forEach((obj, methods) -> {
-            methods.stream()
-                    .map(pta::objectsAllocatedIn)
-                    .flatMap(os -> os.stream())
-                    .forEach(o -> {
-                        obj.addToAttributeSet(SUCCS, o);
-                        o.addToAttributeSet(PREDS, obj);
-                    });
-        });
+        invokedMethods.entrySet()
+                .stream()
+                .filter(e -> !isArray(e.getKey()))
+                .forEach(e -> {
+                    Obj obj = e.getKey();
+                    Set<Method> methods = e.getValue();
+                    methods.stream()
+                            .map(pta::objectsAllocatedIn)
+                            .flatMap(Collection::stream)
+                            .forEach(o -> {
+                                obj.addToAttributeSet(SUCCS, o);
+                                o.addToAttributeSet(PREDS, obj);
+                            });
+                });
         computeAllocatees();
         pta.allObjects().forEach(obj -> {
             Type type = obj.getType();
@@ -97,10 +103,6 @@ public class ObjectAllocationGraph implements DirectedGraph<Obj> {
         SetFactory<Obj> setFactory = new SetFactory<>();
         sorter.sort(mg, true).forEach(node -> {
             Set<Obj> allocatees = setFactory.get(getAllocatees(node, mg));
-            if (Global.isDebug()) {
-//                System.out.println(color(BLUE, "Allocatees of: ") + node);
-//                System.out.println(allocatees);
-            }
             node.getContent()
                     .forEach(obj -> obj.setAttribute(ALLOCATEES, allocatees));
         });
@@ -123,5 +125,9 @@ public class ObjectAllocationGraph implements DirectedGraph<Obj> {
             allocatees.addAll(node.getContent());
         }
         return allocatees;
+    }
+
+    private boolean isArray(Obj obj) {
+        return obj.getType().toString().endsWith("[]");
     }
 }

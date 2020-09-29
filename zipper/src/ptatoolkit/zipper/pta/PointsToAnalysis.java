@@ -29,6 +29,24 @@ public interface PointsToAnalysis {
      */
     Set<Obj> pointsToSetOf(Variable var);
 
+    /**
+     * @param var
+     * @return the size of (i.e., number of objects in)
+     * points-to set of var
+     */
+    int pointsToSetSizeOf(Variable var);
+
+    /**
+     * @return the size of points-to set of the whole program
+     */
+    int totalPointsToSetSize();
+
+    /**
+     * @param method
+     * @return the variables declared in method
+     */
+    Set<Variable> variablesDeclaredIn(Method method);
+
     // For pointer flow.
     Iterator<Pair<Variable, Variable>> localAssignIterator();
 

@@ -4,7 +4,6 @@ import ptatoolkit.Global;
 import ptatoolkit.pta.basic.Method;
 import ptatoolkit.pta.basic.Obj;
 import ptatoolkit.pta.basic.Type;
-import ptatoolkit.pta.basic.Variable;
 import ptatoolkit.util.ANSIColor;
 import ptatoolkit.util.Timer;
 import ptatoolkit.zipper.flowgraph.FlowAnalysis;
@@ -14,10 +13,13 @@ import ptatoolkit.zipper.flowgraph.ObjectFlowGraph;
 import ptatoolkit.zipper.flowgraph.VarNode;
 import ptatoolkit.zipper.pta.PointsToAnalysis;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -26,8 +28,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import static com.google.common.base.Predicates.not;
 import static ptatoolkit.util.ANSIColor.BLUE;
-import static ptatoolkit.util.ANSIColor.RED;
 import static ptatoolkit.util.ANSIColor.YELLOW;
 import static ptatoolkit.util.ANSIColor.color;
 
@@ -37,17 +39,16 @@ import static ptatoolkit.util.ANSIColor.color;
  */
 public class Zipper {
 
-    private static int IN_TYPE_THRESHOLD = 50;
-
     private final PointsToAnalysis pta;
     private final ObjectAllocationGraph oag;
     private final PotentialContextElement pce;
     private final ObjectFlowGraph ofg;
     private final InnerClassChecker innerClsChecker;
-    private AtomicInteger analyzedClasses = new AtomicInteger(0);
-    private AtomicInteger totalPFGNodes = new AtomicInteger(0);
-    private AtomicInteger totalPFGEdges = new AtomicInteger(0);
-    private Set<Method> pcm = ConcurrentHashMap.newKeySet();
+    private final Map<Method, Integer> methodPts;
+    private final AtomicInteger analyzedClasses = new AtomicInteger(0);
+    private final AtomicInteger totalPFGNodes = new AtomicInteger(0);
+    private final AtomicInteger totalPFGEdges = new AtomicInteger(0);
+    private final Map<Type, Collection<Method>> pcmMap = new ConcurrentHashMap<>(1024);
 
     public Zipper(PointsToAnalysis pta) {
         this.pta = pta;
@@ -55,6 +56,7 @@ public class Zipper {
         this.pce = new PotentialContextElement(pta, oag);
         this.innerClsChecker = new InnerClassChecker(pta);
         this.ofg = buildObjectFlowGraph(pta);
+        this.methodPts = getMethodPointsToSize(pta);
     }
 
     public static void outputNumberOfClasses(PointsToAnalysis pta) {
@@ -98,7 +100,7 @@ public class Zipper {
      */
     public Set<Method> analyze() {
         reset();
-        System.out.println("Building PFGs (Pollution Flow Graphs) and computing precision-critical methods ...");
+        System.out.println("Building PFGs (Precision Flow Graphs) and computing precision-critical methods ...");
         List<Type> types = pta.allObjects().stream()
                 .map(Obj::getType)
                 .distinct()
@@ -119,6 +121,8 @@ public class Zipper {
                 ANSIColor.RESET);
         System.out.println();
 
+        Set<Method> pcm = collectAllPrecisionCriticalMethods(pcmMap,
+                computePCMThreshold());
         System.out.println("#Precision-critical methods: " +
                 ANSIColor.BOLD + ANSIColor.GREEN + pcm.size() + ANSIColor.RESET);
         return pcm;
@@ -162,55 +166,32 @@ public class Zipper {
                 .flatMap(Collection::stream)
                 .collect(Collectors.toSet());
 
-        // Obtain the IN methods
+        // Obtain IN methods
         Set<Method> inms = ms.stream()
-                .filter(m -> {
-                    if (!m.isPrivate()) {
-                        for (Variable param : m.getParameters()) {
-                            if (!pta.pointsToSetOf(param).isEmpty()) {
-                                // for zipper*
-                                if (!Global.isExpress()) {
-                                    return true;
-                                } else {
-                                    return satifyInTypeThreshold(m);
-                                }
-                            }
-                        }
-                    }
-                    return false;
-                })
+                .filter(not(Method::isPrivate))
+                .filter(m -> m.getParameters().stream()
+                        .anyMatch(p -> !pta.pointsToSetOf(p).isEmpty()))
                 .collect(Collectors.toSet());
 
         // Obtain OUT methods
         Set<Method> outms = new HashSet<>();
-        ms.forEach(m -> {
-            if (!m.isPrivate()) {
-                for (Variable ret : m.getRetVars()) {
-                    if (!pta.pointsToSetOf(ret).isEmpty()) {
-                        outms.add(m);
-                        break;
-                    }
-                }
-            }
-        });
+        ms.stream()
+                .filter(not(Method::isPrivate))
+                .filter(m -> m.getRetVars().stream()
+                        .anyMatch(r -> !pta.pointsToSetOf(r).isEmpty()))
+                .forEach(outms::add);
         // OUT methods of inner classes and special access$ methods
         // are also considered as the OUT methods of current type
-        pce.PCEMethodsOf(type).forEach(m -> {
-            Type mtdType = pta.declaringTypeOf(m);
-            if (!m.isPrivate()) {
-                if (m.isInstance()) {
-                    if (innerClsChecker.isInnerClass(mtdType, type)) {
-                        outms.add(m);
-                    }
-                } else {
-                    if (mtdType.equals(type)
-                            && m.toString().contains("access$")
-                            ) {
-                        outms.add(m);
-                    }
-                }
-            }
-        });
+        pce.PCEMethodsOf(type).stream()
+                .filter(not(Method::isPrivate).and(Method::isInstance))
+                .filter(m -> innerClsChecker.isInnerClass(
+                        pta.declaringTypeOf(m), type))
+                .forEach(outms::add);
+        pce.PCEMethodsOf(type).stream()
+                .filter(not(Method::isPrivate).and(Method::isStatic))
+                .filter(m -> pta.declaringTypeOf(m).equals(type)
+                        && m.toString().contains("access$"))
+                .forEach(outms::add);
 
         if (Global.isDebug()) {
             System.out.println(color(YELLOW, "In methods:"));
@@ -232,15 +213,36 @@ public class Zipper {
                 System.out.println(color(BLUE, "Flow found: ") + type);
             }
         }
-        mergeAnalysisResults(fa.numberOfPFGNodes(), fa.numberOfPFGEdges(), precisionCriticalMethods);
+        mergeAnalysisResults(type, fa.numberOfPFGNodes(),
+                fa.numberOfPFGEdges(), precisionCriticalMethods);
         fa.clear();
     }
 
-    private void mergeAnalysisResults(int nrPFGNodes, int nrPFGEdges, Set<Method> precisionCriticalMethods) {
+    private void mergeAnalysisResults(Type type, int nrPFGNodes, int nrPFGEdges,
+                                      Set<Method> precisionCriticalMethods) {
         analyzedClasses.incrementAndGet();
         totalPFGNodes.addAndGet(nrPFGNodes);
         totalPFGEdges.addAndGet(nrPFGEdges);
-        pcm.addAll(precisionCriticalMethods);
+        pcmMap.put(type, new ArrayList<>(precisionCriticalMethods));
+    }
+
+    private Set<Method> collectAllPrecisionCriticalMethods(
+            Map<Type, Collection<Method>> pcmMap, int pcmThreshold) {
+        Set<Method> pcm = new HashSet<>();
+        pcmMap.forEach((type, pcms) -> {
+            if (Global.isExpress() &&
+                    getAccumulativePointsToSetSize(pcms) > pcmThreshold) {
+                return;
+            }
+            pcm.addAll(pcms);
+        });
+        return pcm;
+    }
+
+    private int computePCMThreshold() {
+        // Use points-to size of whole program as denominator
+        return (int) (Global.getExpressThreshold() *
+                pta.totalPointsToSetSize());
     }
 
     private Set<Method> getPrecisionCriticalMethods(Type type, Set<Node> nodes) {
@@ -264,20 +266,24 @@ public class Zipper {
         analyzedClasses.set(0);
         totalPFGNodes.set(0);
         totalPFGEdges.set(0);
-        pcm.clear();
+        pcmMap.clear();
     }
 
-    private boolean satifyInTypeThreshold(Method inMethod) {
-        for (Variable param : inMethod.getParameters()) {
-            Set<Type> inTypes = new HashSet<>();
-            for (Obj obj : pta.pointsToSetOf(param)) {
-                inTypes.add(obj.getType());
-                if (inTypes.size() > IN_TYPE_THRESHOLD) {
-                    return true;
-                }
-            }
-        }
-        return false;
+    private Map<Method, Integer> getMethodPointsToSize(PointsToAnalysis pta) {
+        Map<Method, Integer> results = new HashMap<>();
+        pta.reachableMethods().forEach(m ->
+                results.put(m,
+                        pta.variablesDeclaredIn(m)
+                                .stream()
+                                .mapToInt(pta::pointsToSetSizeOf)
+                                .sum())
+        );
+        return results;
     }
 
+    private long getAccumulativePointsToSetSize(Collection<Method> methods) {
+        return methods.stream()
+                .mapToInt(methodPts::get)
+                .sum();
+    }
 }

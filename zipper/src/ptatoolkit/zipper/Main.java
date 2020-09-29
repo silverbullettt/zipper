@@ -33,10 +33,12 @@ public class Main {
 
     public static void run(Options opt) throws IOException {
         System.out.printf("Analyze %s ...\n", opt.getApp());
+        String zipperStr = Global.isExpress() ? "Zipper-e" : "Zipper";
 
         PointsToAnalysis pta = readPointsToAnalysis(opt);
         Timer zipperTimer = new Timer("Zipper Timer");
-        System.out.println(ANSIColor.BOLD + ANSIColor.YELLOW + "Zipper starts ..." + ANSIColor.RESET);
+        System.out.println(ANSIColor.BOLD + ANSIColor.YELLOW
+                + zipperStr + " starts ..." + ANSIColor.RESET);
         String flows = Global.getFlow() != null ? Global.getFlow() : "Direct+Wrapped+Unwrapped";
         System.out.println("Precision loss patterns: " +
                 ANSIColor.BOLD + ANSIColor.GREEN + flows + ANSIColor.RESET);
@@ -45,8 +47,8 @@ public class Main {
         Zipper zipper = new Zipper(pta);
         Set<Method> pcm = zipper.analyze();
         zipperTimer.stop();
-        System.out.print(ANSIColor.BOLD + ANSIColor.YELLOW +
-                "Zipper finishes, analysis time: " + ANSIColor.RESET);
+        System.out.print(ANSIColor.BOLD + ANSIColor.YELLOW
+                + zipperStr + " finishes, analysis time: " + ANSIColor.RESET);
         System.out.print(ANSIColor.BOLD + ANSIColor.GREEN);
         System.out.printf("%.2fs", zipperTimer.inSecond());
         System.out.println(ANSIColor.RESET);
@@ -59,7 +61,7 @@ public class Main {
             Dumper.dumpObjectFlowGraph(ofg, output);
         }
 
-        String expressSuffix = "-modified";
+        String expressSuffix = "-express";
         File outDir = new File(opt.getOutPath());
         if (!outDir.exists()) {
             Files.createDirectories(outDir.toPath());
@@ -73,7 +75,6 @@ public class Main {
                 zipperPCMOutput.getPath());
         System.out.println();
         writeZipperResults(pcm, zipperPCMOutput);
-
     }
 
     public static PointsToAnalysis readPointsToAnalysis(Options opt) {
