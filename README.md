@@ -17,9 +17,9 @@ This tutorial introduces how to build and use ZIPPER and ZIPPER-e together with 
 Please set your `JAVA_HOME` environment variable to point to your Java installation directory.
 
 
-## Building ZIPPER
+## Building ZIPPER and ZIPPER-e
 
-We have provided a pre-compiled jar of ZIPPER and ZIPPER-e, i.e., `zipper.jar` in the directory `zipper/build/`. To build them by yourself, you just need to switch to the `zipper/` directory and run script:
+We have provided a pre-compiled jar of ZIPPER and ZIPPER-e, i.e., `zipper.jar` (this jar also includes ZIPPER-e) in the directory `zipper/build/`. To build them by yourself, you just need to switch to the `zipper/` directory and run script:
 
 `$ ./compile.sh`
 
