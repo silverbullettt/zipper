@@ -3,6 +3,8 @@ The artifact of our paper can be downloaded from [here](http://www.brics.dk/zipp
 
 Based on ZIPPER, we proposed ZIPPER-e (short for ZIPPER-express) in our TOPLAS'20 paper "[A Principled Approach to Selective Context Sensitivity for Pointer Analysis](https://silverbullettt.bitbucket.io/papers/toplas2020.pdf)", which exhibits extremely good efficiency with high precision.
 
+**Note: Now we have integrated both ZIPPER and ZIPPER-e in [Tai-e](https://github.com/pascal-lab/Tai-e), an easy-to-learn/use static analysis framework for Java. We recommend you using ZIPPER/ZIPPER-e in [Tai-e](https://github.com/pascal-lab/Tai-e).**
+
 To demonstrate the usefulness of ZIPPER and ZIPPER-e to pointer analysis, we have integrated them with [DOOP](https://bitbucket.org/yanniss/doop) ([PLDI'14 artifact version](http://cgi.di.uoa.gr/~smaragd/pldi14ae/pldi14-ae.tgz)), a state-of-the-art context-sensitive points-to analysis framework for Java. For your convenience, this repository also contains the DOOP framework with ZIPPER and ZIPPER-e integrated.
 
 This tutorial introduces how to build and use ZIPPER and ZIPPER-e together with DOOP.
